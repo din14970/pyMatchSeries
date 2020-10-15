@@ -1,0 +1,34 @@
+templateNamePattern " "
+templateNumOffset 0
+templateNumStep 1
+numTemplates 0
+templateSkipNums {  }
+preSmoothSigma 0
+saveRefAndTempl 0
+numExtraStages 2
+saveDirectory " "
+dontNormalizeInputImages 0
+enhanceContrastSaturationPercentage 0.15
+normalizeMinToZero 1
+lambda 200
+lambdaFactor 1
+maxGDIterations 500
+stopEpsilon 1e-6
+startLevel 6
+stopLevel 8
+precisionLevel 8
+refineStartLevel 7
+refineStopLevel 8
+checkboxWidth 8
+resizeInput 0
+dontAccumulateDeformation 0
+reuseStage1Results 1
+extraStagesLambdaFactor 0.1
+useMedianAsNewTarget 1
+calcInverseDeformation 0
+skipStage1 0
+saveNamedDeformedTemplates 1
+saveNamedDeformedTemplatesUsingNearestNeighborInterpolation 1
+saveNamedDeformedTemplatesExtendedWithMean 1
+saveDeformedTemplates 1
+saveNamedDeformedDMXTemplatesAsDMX 1
