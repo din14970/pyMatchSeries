@@ -15,6 +15,8 @@ import hyperspy.api as hs
 import sys
 from tabulate import tabulate
 import h5py
+import warnings
+from scipy import ndimage
 
 from . import config_tools as ctools
 
@@ -37,7 +39,44 @@ def check_emd_contents(filename):
     print(tabulate(table, headers="firstrow"))
 
 
-def overwrite_dir(fname):
+def _overwrite_file(fname):
+    """ If file exists 'fname', ask for overwriting and return True or False,
+    else return True.
+    Parameters
+    ----------
+    fname : str or pathlib.Path
+        Directory to check
+    Returns
+    -------
+    bool :
+        Whether to overwrite file.
+    """
+    if Path(fname).is_file():
+        message = f"Overwrite '{fname}' (y/n)?\n"
+        try:
+            answer = input(message)
+            answer = answer.lower()
+            while (answer != "y") and (answer != "n"):
+                print("Please answer y or n.")
+                answer = input(message)
+            if answer.lower() == "y":
+                return True
+            elif answer.lower() == "n":
+                return False
+        except Exception:
+            # We are running in the IPython notebook that does not
+            # support raw_input
+            logging.info(
+                "Your terminal does not support raw input. "
+                "Not overwriting. "
+                "To overwrite the file use `overwrite=True`"
+            )
+            return False
+    else:
+        return True
+
+
+def _overwrite_dir(fname):
     """ If dir exists 'fname', ask for overwriting and return True or False,
     else return True.
     Parameters
@@ -74,74 +113,230 @@ def overwrite_dir(fname):
         return True
 
 
-path_lists = [
-        "image_folder_paths",
-        "image_hspy_paths",
-        "spectrum_hspy_paths",
-        "calculation_output_paths",
-        "config_file_paths",
-        "results_paths",
-        "other_data",
-        ]
-
-
 class MatchSeries(h5py.File):
-    """Class representing a Match series calculation"""
-    def __init__(self, name, mode="a"):
+    """Class representing a persistent Match series calculation"""
+
+    path_lists = [
+            "metadata",
+            "image_folder_paths",
+            "calculation_output_paths",
+            "config_file_paths",
+            "image_hspy_paths",
+            "spectrum_hspy_paths",
+            "results_paths",
+            ]
+
+    default_filename = "matchseries_calculation"
+
+    @staticmethod
+    def new(data, name=None, over_write=None, **kwargs):
+        if isinstance(data, str) or isinstance(data, Path):
+            file_path = os.path.abspath(data)
+            if not os.path.isfile(file_path):
+                raise ValueError(f"Data file {file_path} does not exist")
+            absfolder_input, basename = os.path.split(file_path)
+            prefix_name, ext = os.path.splitext(basename)
+            accepted_extensions = [".emd", ".hspy"]
+            if ext not in accepted_extensions:
+                raise ValueError(f"Only {accepted_extensions} are accepted")
+            if name is None:
+                name = prefix_name.replace(" ", "_")
+        elif isinstance(data, np.ndarray):
+            if data.ndim != 3 or data.shape[0] < 2:
+                raise ValueError("The data should be in the form of a 3D"
+                                 " data cube (data.ndim = 3) and the first "
+                                 "axis should contain more than than 1 element"
+                                 )
+            if name is None:
+                warnings.warn("No name was provided to the calculation, "
+                              "choosing default: "
+                              f"{MatchSeries.default_filename}.")
+                name = "matchseries_calculation"
+        elif isinstance(data, hs.signals.Signal2D):
+            if data.data.ndim != 3 or data.data.shape[0] < 2:
+                raise ValueError("The data should be in the form of a 3D"
+                                 " data cube (data.ndim = 3) and the first "
+                                 "axis should contain more than than 1 element"
+                                 )
+            if name is None:
+                name = data.metadata.General.title
+                if not name:
+                    warnings.warn("No name was provided and no dataset title "
+                                  "was found. Choosing default: "
+                                  f"{MatchSeries.default_filename}")
+        else:
+            raise TypeError(f"The input data type {type(data)} is not"
+                            "supported. Supported are file paths, "
+                            "numpy arrays and hyperspy Signal2D objects.")
         if not name.endswith(".hdf5"):
             name = name + ".hdf5"
-        if not Path(name).is_file():
-            newfile = True
+        if os.path.isfile(name):
+            warnings.warn(f"The calculation with name {name} already exists!")
+            if over_write is None:
+                over_write = _overwrite_file(name)
+            if over_write:
+                os.remove(name)
+            else:
+                sys.exit(1)
+        f = MatchSeries(name)
+        f.create_group("data")
+        f["data"].attrs["name"] = os.path.splitext(name)[0]
+        f._prepare_datasets(data, **kwargs)
+        print(f"A new calculation was created with name {name}")
+        return f
+
+    @staticmethod
+    def load(name=None):
+        if name is None:
+            warnings.warn("Data and name empty, will try to read default"
+                          f" filename: {MatchSeries.default_filename}")
+            name = MatchSeries.default_filename + ".hdf5"
+        if not name.endswith(".hdf5"):
+            name = name + ".hdf5"
+        # no data is provided, the file must already exist
+        if not os.path.isfile(name):
+            raise ValueError(f"{name} not found, can not load datasets.")
+        return MatchSeries(name)
+
+    def __init__(self, name, **kwargs):
+        super().__init__(name, mode="a", *kwargs)
+
+    def _prepare_datasets(self, data, **kwargs):
+        if isinstance(data, str) or isinstance(data, Path):
+            if data.endswith(".emd"):
+                self._extract_emd(data, **kwargs)
+            elif data.endswith(".hspy"):
+                self._extract_hspy(data, **kwargs)
+            else:
+                raise NotImplementedError("This file type not supported.")
+        elif isinstance(data, np.ndarray):
+            self._extract_npy(data, **kwargs)
+        elif isinstance(data, hs.signals.Signal2D):
+            self._extract_bare_signal2d(data, **kwargs)
         else:
-            newfile = False
-        super().__init__(name, mode)
-        if newfile:
-            for i in path_lists:
-                self.create_group(i)
+            raise NotImplementedError("This type of data is not supported.")
+
+    @property
+    def _image_dataset_indexes(self):
+        return self["data"].attrs["image_dataset_indexes"].tolist()
+
+    @property
+    def _spectroscopy_dataset_indexes(self):
+        return self["data"].attrs["spectroscopy_dataset_indexes"].tolist()
+
+    @property
+    def name(self):
+        return self["data"].attrs["name"]
+
+    @property
+    def data_file_path(self):
+        return self["data"].attrs["data_file_path"]
 
     @property
     def image_folder_paths(self):
-        return dict(self["image_folder_paths"].attrs)
-
-    @property
-    def image_hspy_paths(self):
-        return dict(self["image_hspy_paths"].attrs)
-
-    @property
-    def spectrum_hspy_paths(self):
-        return dict(self["spectrum_hspy_paths"].attrs)
+        inx = self["data"].attrs["image_dataset_indexes"]
+        vals = self["data"].attrs["input_image_folder_paths"]
+        return dict(zip(inx, vals))
 
     @property
     def calculation_output_paths(self):
-        return dict(self["calculation_output_paths"].attrs)
+        inx = self["data"].attrs["image_dataset_indexes"]
+        vals = self["data"].attrs["output_folder_paths"]
+        return dict(zip(inx, vals))
 
     @property
     def config_file_paths(self):
-        return dict(self["config_file_paths"].attrs)
+        inx = self["data"].attrs["image_dataset_indexes"]
+        vals = self["data"].attrs["config_file_paths"]
+        return dict(zip(inx, vals))
 
-    @property
-    def results_paths(self):
-        return dict(self["results_paths"].attrs)
+    def _extract_signal2d(self, ima, output_folder=None,
+                          image_filter=None, **kwargs):
+        """
+        Extract the images from a hyperspy image stack
+        """
+        if output_folder is None:
+            output_folder = os.path.abspath(f"./{self.name}")
+        if not os.path.isdir(output_folder):
+            os.makedirs(output_folder)
+        # apply filters to the image
+        digits = _get_counter(ima.data.shape[0])
+        original_dtype = ima.data.dtype
+        if image_filter is not None:
+            ima.map(image_filter, parallel=True, ragged=False)
+        ima.data = ima.data.astype(original_dtype)
+        title = "input_images"
+        opath = os.path.join(output_folder, title)
+        if not os.path.isdir(opath):
+            os.makedirs(opath)
+        logging.info("Exporting the frames")
+        _export_frames(ima, output_folder=opath,
+                       prefix=DEFAULT_PREFIX,
+                       digits=digits)
+        logging.info("finished exporting the frames")
+        self["data"].attrs["image_dataset_indexes"] = [0]
+        self["data"].attrs["spectroscopy_dataset_indexes"] = []
+        self["data"].attrs["input_image_folder_paths"] = [opath]
+        cfilename = os.path.join(output_folder,
+                                 f"{title}.par")
+        pathpattern = os.path.join(
+                output_folder,
+                f"{title}/{DEFAULT_PREFIX}_%0{digits}d.tiff")
+        # already create the folder for the output
+        outputpath = os.path.join(output_folder,
+                                  f"{title}_results/")
+        # level = log2 of image size
+        outlevel = int(np.log2(ima.data.shape[-1]))
+        if not os.path.isdir(outputpath):
+            os.makedirs(outputpath)
+        ctools.create_config_file(cfilename, pathpattern=pathpattern,
+                                  savedir=outputpath,
+                                  preclevel=outlevel,
+                                  num_frames=ima.data.shape[0],
+                                  **kwargs)
+        self["data"].attrs["output_folder_paths"] = [outputpath]
+        self["data"].attrs["config_file_paths"] = [cfilename]
 
-    @property
-    def other_data(self):
-        return dict(self["other_data"].attrs)
-
-    def extract_hspy(self, file_path, output_folder=None):
+    def _extract_hspy(self, file_path, output_folder=None,
+                      image_filter=None, **kwargs):
         """
         Extract image frames from a 3D hyperspy dataset
         """
-        pass
+        ima = hs.load(file_path, lazy=True)
+        self["data"].attrs["data_file_path"] = file_path
+        self._extract_signal2d(ima, output_folder=output_folder,
+                               image_filter=image_filter, **kwargs)
 
-    def extract_npy(self, data, output_folder=None):
+    def _extract_npy(self, data, output_folder=None,
+                     image_filter=None, **kwargs):
         """
-        Extract image frames from a 3D numpy array and
+        Extract image frames from a 3D numpy array
         """
-        pass
+        ima = hs.signals.Signal2D(data)
+        self["data"].attrs["data_file_path"] = "_None_"
+        self._extract_signal2d(ima, output_folder=output_folder,
+                               image_filter=image_filter, **kwargs)
+        logging.info("Also storing a copy of the data inside the hdf5 file")
+        self["data"].create_dataset("data", data=ima.data)
 
-    def extract_emd(self, file_path, output_folder=None,
-                    image_dataset_index=None, spectrum_dataset_index=None,
-                    image_filter=None, over_write=None, **kwargs):
+    def _extract_bare_signal2d(self, ima, output_folder=None,
+                               image_filter=None, **kwargs):
+        """
+        Extract image fromes from a 3D hyperspy dataset loaded into memory
+        """
+        if output_folder is None:
+            output_folder = os.path.abspath(f"./{self.name}")
+        if not os.path.isdir(output_folder):
+            os.makedirs(output_folder)
+        opath = os.path.join(output_folder, "input_images.hspy")
+        ima.save(opath)
+        self["data"].attrs["data_file_path"] = opath
+        self._extract_signal2d(ima, output_folder=output_folder,
+                               image_filter=image_filter, **kwargs)
+
+    def _extract_emd(self, file_path, output_folder=None,
+                     image_dataset_index=None, spectrum_dataset_index=None,
+                     image_filter=None, **kwargs):
         """
         Extract images and spectrum data from Velox emd files using Hyperspy.
 
@@ -163,27 +358,20 @@ class MatchSeries(h5py.File):
         image_filter: callable, optional
             callable that acts on the images to process them before they are
             exported.
-        over_write: bool, optional
-            if data was already extracted from this file, over_write will write
-            over these datasets without a question. If false it will not
-            overwrite datasets. If None, it will pose the question if a
-            conflict is found.
 
         Additional parameters
         ---------------------
         Any value for the MatchSeries config file can be passed here.
         """
         input_path = os.path.abspath(file_path)
+        self["data"].attrs["data_file_path"] = input_path
         absfolder_input, basename = os.path.split(input_path)
         prefix_name, ext = os.path.splitext(basename)
-        if not os.path.isfile(input_path) and ext == "emd":
-            raise ValueError(f"{input_path} is not a valid emd file path")
-        self["other_data"].attrs["original_file_path"] = input_path
         if output_folder is None:
             output_folder = os.path.dirname(input_path)
         elif not os.path.isdir(output_folder):
-            logging.error(f"{output_folder} is not a valid directory")
-            logging.error("Will attempt to create this directory")
+            logging.warning(f"{output_folder} is not a valid directory")
+            logging.warning("Will attempt to create this directory")
             os.makedirs(output_folder)
         output_folder = os.path.abspath(output_folder)
         # read the file
@@ -196,9 +384,9 @@ class MatchSeries(h5py.File):
             spds = [j for j, i in enumerate(f) if
                     isinstance(i, hs.signals.EDSTEMSpectrum) and
                     i.data.ndim == 4]
-            logging.debug(f"Opened file {input_path}")
-            logging.debug(f"Found image datasets: {imds}")
-            logging.debug(f"Found spectroscopy datasets: {spds}")
+            logging.info(f"Opened file {input_path}")
+            logging.info(f"Found image datasets: {imds}")
+            logging.info(f"Found spectroscopy datasets: {spds}")
         except Exception as e:
             raise Exception(f"Something went wrong reading the file: {e}")
         # Images
@@ -240,7 +428,13 @@ class MatchSeries(h5py.File):
                             f"{type(spectrum_dataset_index)}")
         # the name to prepend to all folders
         pn = prefix_name.replace(" ", "_")
+        # store the dataset indexes to the file
+        self["data"].attrs["image_dataset_indexes"] = dsets
+        self["data"].attrs["spectroscopy_dataset_indexes"] = sdsets
         # first export all the relevant image datasets
+        image_folder_paths = []
+        config_file_paths = []
+        calculation_results = []
         for k in dsets:
             try:
                 # image is the k'th image dataset
@@ -250,12 +444,6 @@ class MatchSeries(h5py.File):
                 opath = str(Path(f"{output_folder}/{pn}/{k}_{title}/"))
                 if not os.path.isdir(opath):
                     os.makedirs(opath)
-                else:
-                    # if the directory already exists skip
-                    if over_write is None:
-                        over_write = overwrite_dir(opath)
-                    if over_write is False:
-                        continue
                 # number of digits required to represent the images
                 digits = _get_counter(ima.data.shape[0])
                 # apply filters to the image
@@ -263,14 +451,10 @@ class MatchSeries(h5py.File):
                 if image_filter is not None:
                     ima.map(image_filter, parallel=True, ragged=False)
                 ima.data = ima.data.astype(original_dtype)
-                # save the raw dataset as a hyperspy object
-                hyperspy_filename = f"{output_folder}/{pn}/{k}_{title}.hspy"
-                ima.save(hyperspy_filename, overwrite=True)
-                logging.debug(f"Saved hyperspy object to {hyperspy_filename}")
-                export_frames(ima, output_folder=opath,
-                              prefix=DEFAULT_PREFIX,
-                              digits=digits)
-                logging.debug(f"Saved out the frames to {opath}")
+                _export_frames(ima, output_folder=opath,
+                               prefix=DEFAULT_PREFIX,
+                               digits=digits)
+                logging.info(f"Saved out the frames to {opath}")
                 # also create a config file for all datasets
                 # construct the config file
                 cfilename = os.path.join(output_folder,
@@ -290,46 +474,130 @@ class MatchSeries(h5py.File):
                                           preclevel=outlevel,
                                           num_frames=ima.data.shape[0],
                                           **kwargs)
-                logging.debug(
+                logging.info(
                       f"Dataset {k} was exported to {opath}. A config file "
                       f"{cfilename} was created.")
-                self["image_folder_paths"].attrs[str(k)] = opath
-                self["image_hspy_paths"].attrs[str(k)] = hyperspy_filename
-                self["calculation_output_paths"].attrs[str(k)] = outputpath
-                self["config_file_paths"].attrs[str(k)] = cfilename
+                image_folder_paths.append(opath)
+                config_file_paths.append(cfilename)
+                calculation_results.append(outputpath)
             except Exception as e:
                 raise e
                 logging.warning(f"Dataset {k} was not exported: {e}")
-        # Spectrumstreams
-        # are there any in the dataset?
-        if not sdsets:
-            logging.debug(
-                    "There is no spectral data to consider in this dataset")
-            sys.exit(1)
-        for k in sdsets:
-            try:
-                spec = f[k]
-                logging.debug(f"Working on dataset {k}")
-                title = spec.metadata.General.title.replace(" ", "_")
-                # hyperspy_filename = f"{output_folder}/{pn}/{k}_{title}.hspy"
-                # spec.save(hyperspy_filename)
-                # logging.debug("Exported stream to hyperspy object")
-            except Exception as e:
-                logging.warning(f"Dataset {k} was not exported: {e}")
-            self["spectrum_hspy_paths"].attrs[str(k)] = hyperspy_filename
+        self["data"].attrs["input_image_folder_paths"] = image_folder_paths
+        self["data"].attrs["config_file_paths"] = config_file_paths
+        self["data"].attrs["output_folder_paths"] = calculation_results
 
-    def run(self, index):
+    @property
+    def success(self):
+        return self["data"].attrs["calculation_success"].tolist()
+
+    def calculate_deformations(self, index=0):
         """Run match series for a particular config file"""
-        cmd = [str("matchSeries"), f"{config_file}", ">", "output.log"]
-        process1 = subprocess.Popen(cmd, stderr=subprocess.PIPE)
-        process1.wait()
-        return read_config_file(config_file)["saveDirectory"]
+        try:
+            config_file = self.config_file_paths[index]
+        except KeyError:
+            raise ValueError(f"No configuration was found for dataset {index}")
+        cmd = [str("matchSeries"), f"{config_file}"]
+        try:
+            process1 = subprocess.Popen(cmd, stdout=subprocess.STDOUT)
+            process1.wait()
+        except Exception as e:
+            raise OSError("matchSeries was not found on your system. "
+                          "Please conda install matchSeries or compile "
+                          f"from source. Additional error info: {e}")
+        success = self.success
+        success.append(index)
+        self["data"].attrs["calculation_success"] = list(set(success))
+
+    def get_spectrum_dataset(self, index=0):
+        """Get the original input dataset as a hyperspy signal"""
+        fp = self["data"].attrs["data_file_path"]
+        if index not in self._spectroscopy_dataset_indexes:
+            raise ValueError(f"Dataset with index {index} not found")
+        if not fp == "_None_":
+            try:
+                f = hs.load(fp, sum_frames=False, lazy=True,
+                            load_SI_image_stack=True)
+                data = f[index]
+            except Exception as e:
+                raise e
+        else:
+            raise ValueError("No dataset could be found")
+        return data
+
+    def get_input_image_dataset(self, index=0):
+        """Get the original input dataset as a hyperspy signal"""
+        fp = self["data"].attrs["data_file_path"]
+        if index not in self._image_dataset_indexes:
+            raise ValueError(f"Dataset with index {index} not found")
+        if not fp == "_None_":
+            try:
+                f = hs.load(fp, sum_frames=False, lazy=True,
+                            load_SI_image_stack=True)
+                data = f[index]
+            except Exception as e:
+                raise e
+        else:
+            try:
+                data = hs.signals.Signal2D(f["data"]["data"][()])
+            except Exception:
+                raise ValueError("No dataset could be found")
+        return data
+
+    def _get_stage_bznum(self, index):
+        """For extracting the right defx and defy"""
+        cf_path = self.config_file_paths[index]
+        cf_dic = ctools.load_config(cf_path)
+        bznumber = cf_dic["stopLevel"].zfill(2)
+        stage = int(cf_dic["numExtraStages"])+1
+        return stage, bznumber
 
     def get_deformations(self, image_set_index, frame_index):
-        pass
+        """Return the X and Y deformations as numpy arrays"""
+        if image_set_index not in self.success:
+            raise ValueError("No successful calculation found for index "
+                             f"{image_set_index}")
+        try:
+            result_folder = self.calculation_output_paths[image_set_index]
+        except Exception:
+            raise ValueError("This index does not correspond to valid data")
+        dt = self.get_input_image_dataset(image_set_index)
+        frames = dt.data.shape[0]
+        i = frame_index
+        result_folder = self.calculation_output_paths[image_set_index]
+        stage, bznumber = self._get_stage_bznum(image_set_index)
+        if frame_index == 0:
+            defX = _loadFromQ2bz(
+                    str(Path(f"{result_folder}/stage{stage}/{i}/"
+                             f"deformation_{bznumber}_0.dat.bz2")))
+            defY = _loadFromQ2bz(
+                    str(Path(f"{result_folder}/stage{stage}/{i}/"
+                             f"deformation_{bznumber}_1.dat.bz2")))
+        elif frame_index < frames:
+            defX = _loadFromQ2bz(
+                    str(Path(f"{result_folder}/stage{stage}/{i}-r/"
+                             f"deformation_{bznumber}_0.dat.bz2")))
+            defY = _loadFromQ2bz(
+                    str(Path(f"{result_folder}/stage{stage}/{i}-r/"
+                             f"deformation_{bznumber}_1.dat.bz2")))
+        else:
+            raise ValueError("The index is out of bounds")
+        return defX, defY
+
+    @staticmethod
+    def deform_data(stack, defX, defY):
+        w, h = stack.data.shape[-2:]
+        coords = \
+            np.mgrid[0:h, 0:w] + np.multiply([defY, defX], (np.max([h, w])-1))
+
+        def mapping(x):
+            return ndimage.map_coordinates(x, coords, order=0,
+                                           mode="constant"),
+        result = stack.map(mapping, inplace=False, parallel=True)
+        return result
 
     def apply_deformations(self, result_index=0, image_index=None,
-                           spectra_index=None, overwrite=None):
+                           spectra_index=None):
         """
         Apply the deformations calculated by match-series to images and
         optionally spectra. The resulting deformed images and spectra are
@@ -348,7 +616,7 @@ class MatchSeries(h5py.File):
             the deformation should be applied. If None, then no spectra are
             corrected
         """
-        result_index = str(result_index)
+
         if result_index in self.results_paths:
             res_folder = str(Path(self.results_paths[result_index]))
         else:
@@ -470,7 +738,7 @@ def _save_frame_to_file(i, data, path, name, counter, data_format="tiff"):
     logging.debug("Wrote out image {name}_{c}")
 
 
-class FrameByFrame(object):
+class _FrameByFrame(object):
     """A pickle-able wrapper for doing a function on all frames of a stack"""
     def __init__(self, do_in_loop, stack, *args, **kwargs):
         self.func = do_in_loop
@@ -482,9 +750,9 @@ class FrameByFrame(object):
         self.func(index, self.stack, *self.args, **self.kwargs)
 
 
-def export_frames(stack, output_folder=None, prefix="frame",
-                  digits=None, frames=None, multithreading=True,
-                  data_format="tiff"):
+def _export_frames(stack, output_folder=None, prefix="frame",
+                   digits=None, frames=None, multithreading=True,
+                   data_format="tiff"):
     """
     Export a 3D data array as individual images
     """
@@ -497,8 +765,8 @@ def export_frames(stack, output_folder=None, prefix="frame",
     if multithreading:
         with cf.ThreadPoolExecutor() as pool:
             logging.debug("Starting in parallel mode to export")
-            pool.map(FrameByFrame(_save_frame_to_file, stack.data,
-                                  output_folder, prefix, digits, data_format),
+            pool.map(_FrameByFrame(_save_frame_to_file, stack.data,
+                                   output_folder, prefix, digits, data_format),
                      toloop)
     else:
         for i in toloop:
@@ -507,7 +775,7 @@ def export_frames(stack, output_folder=None, prefix="frame",
                                 data_format)
 
 
-def loadFromQ2bz(path):
+def _loadFromQ2bz(path):
     """
     Opens a bz2 or q2bz file and returns an "image" = the deformations
     """
@@ -518,8 +786,6 @@ def loadFromQ2bz(path):
         fid = bz2.open(path, 'rb')
     else:
         fid = open(path, 'rb')  # read binary mode, r+b would be to also write
-    # Read magic number - only possible when bz2.open is called! Will not see
-    # it in hex fiend!
     # rstrip removes trailing zeros
     binaryline = fid.readline()  # will look like "b"P9\n""
     line = binaryline.rstrip().decode('ascii')  # this will look like "P9"
