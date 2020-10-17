@@ -21,8 +21,11 @@ setup(
                  'Programming Language :: Python :: 3.8'],
     keywords='TEM',
     packages=find_packages(exclude=["*tests*", "*examples*"]),
+    package_data={'': ['pymatchseries/default_parameters.param']},
+    include_package_data=True,
     install_requires=[
         'hyperspy',
         'Pillow',
+        'tabulate',
     ],
 )
