@@ -16,7 +16,7 @@ setup(
     long_description_content_type="text/markdown",
     classifiers=['Topic :: Scientific/Engineering :: Physics',
                  'Intended Audience :: Science/Research',
-                 'Operating System :: Linux',
+                 'Operating System :: OS Independent',
                  'Programming Language :: Python :: 3.7',
                  'Programming Language :: Python :: 3.8'],
     keywords='TEM',
