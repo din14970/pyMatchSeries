@@ -6,6 +6,12 @@ import sys
 folder, _ = os.path.split(os.path.abspath(__file__))
 DEFAULT_CONFIG_PATH = os.path.join(folder, "default_parameters.param")
 
+INTEGER = re.compile(r"^[0-9]+$")
+FLOAT = re.compile(r"^[0-9]+\.[0-9]*$")
+SCIENTIFIC = re.compile(r"^[0-9]+e-?[0-9]+$")
+LIST = re.compile(r"^\{(.*)\}$")
+INTEGERLISTITEMS = re.compile(r"([0-9]+)")
+
 
 class config_dict(dict):
     def __init__(self, data):
@@ -18,6 +24,18 @@ class config_dict(dict):
         if key not in self:
             raise KeyError(f"{key} not a valid option")
         self[key] = value
+
+    def __getitem__(self, key):
+        val = super().__getitem__(key)
+        if re.match(INTEGER, val):
+            return int(val)
+        elif re.match(FLOAT, val) or re.match(SCIENTIFIC, val):
+            return float(val)
+        elif re.match(LIST, val):
+            items = re.findall(INTEGERLISTITEMS, val)
+            return list(map(int, items))
+        else:
+            return val
 
     def __setitem__(self, key, value):
         if key not in self:

@@ -9,7 +9,6 @@ import logging
 from pathlib import Path
 import os
 import numpy as np
-import re
 import bz2
 import hyperspy.api as hs
 import sys
@@ -116,16 +115,6 @@ def _overwrite_dir(fname):
 class MatchSeries(h5py.File):
     """Class representing a persistent Match series calculation"""
 
-    path_lists = [
-            "metadata",
-            "image_folder_paths",
-            "calculation_output_paths",
-            "config_file_paths",
-            "image_hspy_paths",
-            "spectrum_hspy_paths",
-            "results_paths",
-            ]
-
     default_filename = "matchseries_calculation"
 
     @staticmethod
@@ -181,6 +170,18 @@ class MatchSeries(h5py.File):
         f = MatchSeries(name)
         f.create_group("data")
         f["data"].attrs["name"] = os.path.splitext(name)[0]
+        f["data"].attrs["data_file_path"] = "_None_"
+        f["data"].attrs["image_dataset_indexes"] = "_None_"
+        f["data"].attrs["config_file_paths"] = "_None_"
+        f["data"].attrs["input_image_folder_paths"] = "_None_"
+        f["data"].attrs["output_folder_paths"] = "_None_"
+        f["data"].attrs["calculation_success"] = "_None_"
+        f["data"].attrs["x_size"] = "_None_"
+        f["data"].attrs["y_size"] = "_None_"
+        f["data"].attrs["x_unit"] = "pixels"
+        f["data"].attrs["y_unit"] = "pixels"
+        f["data"].attrs["x_scale"] = 1
+        f["data"].attrs["y_scale"] = 1
         f._prepare_datasets(data, **kwargs)
         print(f"A new calculation was created with name {name}")
         return f
@@ -219,10 +220,6 @@ class MatchSeries(h5py.File):
     @property
     def _image_dataset_indexes(self):
         return self["data"].attrs["image_dataset_indexes"].tolist()
-
-    @property
-    def _spectroscopy_dataset_indexes(self):
-        return self["data"].attrs["spectroscopy_dataset_indexes"].tolist()
 
     @property
     def name(self):
@@ -296,6 +293,12 @@ class MatchSeries(h5py.File):
                                   **kwargs)
         self["data"].attrs["output_folder_paths"] = [outputpath]
         self["data"].attrs["config_file_paths"] = [cfilename]
+        self["data"].attrs["x_size"] = ima.axes_manager[-1].size
+        self["data"].attrs["y_size"] = ima.axes_manager[-2].size
+        self["data"].attrs["x_unit"] = ima.axes_manager[-1].units
+        self["data"].attrs["y_unit"] = ima.axes_manager[-2].units
+        self["data"].attrs["x_scale"] = ima.axes_manager[-1].scale
+        self["data"].attrs["y_scale"] = ima.axes_manager[-2].scale
 
     def _extract_hspy(self, file_path, output_folder=None,
                       image_filter=None, **kwargs):
@@ -335,7 +338,7 @@ class MatchSeries(h5py.File):
                                image_filter=image_filter, **kwargs)
 
     def _extract_emd(self, file_path, output_folder=None,
-                     image_dataset_index=None, spectrum_dataset_index=None,
+                     image_dataset_index=None,
                      image_filter=None, **kwargs):
         """
         Extract images and spectrum data from Velox emd files using Hyperspy.
@@ -352,9 +355,6 @@ class MatchSeries(h5py.File):
         image_dataset_index : int or list of ints, optional
             integer or list of integers to indicate which image datasets must
             be extracted. By default, all are extracted.
-        spectrum_dataset_index : int or list of ints, optional
-            integer or list of integers to indicate which spectrumstream
-            datasets must be extracted. By default, all are extracted.
         image_filter: callable, optional
             callable that acts on the images to process them before they are
             exported.
@@ -408,29 +408,10 @@ class MatchSeries(h5py.File):
         else:
             raise TypeError("image_dataset_index received unexpected type:"
                             f"{type(image_dataset_index)}")
-        # build up list for spectral dataset indexes
-        if spectrum_dataset_index is None:
-            sdsets = spds
-        elif isinstance(spectrum_dataset_index, int):
-            if spectrum_dataset_index in spds:
-                sdsets = [spectrum_dataset_index]
-            else:
-                raise ValueError("The spectrum_dataset_index does not match "
-                                 "any spectrum dataset")
-        elif isinstance(spectrum_dataset_index, list):
-            if set(spectrum_dataset_index) <= set(spds):
-                sdsets = spectrum_dataset_index
-            else:
-                raise ValueError("The spectrum_dataset_index list is not a "
-                                 "subset of the spectrum dataset indexes.")
-        else:
-            raise TypeError("spectrum_dataset_index received unexpected type:"
-                            f"{type(spectrum_dataset_index)}")
         # the name to prepend to all folders
         pn = prefix_name.replace(" ", "_")
         # store the dataset indexes to the file
         self["data"].attrs["image_dataset_indexes"] = dsets
-        self["data"].attrs["spectroscopy_dataset_indexes"] = sdsets
         # first export all the relevant image datasets
         image_folder_paths = []
         config_file_paths = []
@@ -439,6 +420,12 @@ class MatchSeries(h5py.File):
             try:
                 # image is the k'th image dataset
                 ima = f[k]
+                self["data"].attrs["x_size"] = ima.axes_manager[-1].size
+                self["data"].attrs["y_size"] = ima.axes_manager[-2].size
+                self["data"].attrs["x_unit"] = ima.axes_manager[-1].units
+                self["data"].attrs["y_unit"] = ima.axes_manager[-2].units
+                self["data"].attrs["x_scale"] = ima.axes_manager[-1].scale
+                self["data"].attrs["y_scale"] = ima.axes_manager[-2].scale
                 logging.debug(f"Trying to export dataset {k}")
                 title = ima.metadata.General.title.replace(" ", "_")
                 opath = str(Path(f"{output_folder}/{pn}/{k}_{title}/"))
@@ -489,71 +476,102 @@ class MatchSeries(h5py.File):
 
     @property
     def success(self):
-        return self["data"].attrs["calculation_success"].tolist()
+        calcsuc = self["data"].attrs["calculation_success"]
+        if not isinstance(calcsuc, str):
+            return calcsuc.tolist()
+        else:
+            return []
 
-    def calculate_deformations(self, index=0):
+    @property
+    def summary(self):
+        print(f"MatchSeries calculation: {self.name}")
+        table = [["Index", "Name", "Calculated?", "Full path"]]
+        for i in self._image_dataset_indexes:
+            fp = self.image_folder_paths[i]
+            name = os.path.split(fp)[-1]
+            row = [i, name, i in self.success, fp]
+            table.append(row)
+        print(tabulate(table, headers="firstrow"))
+
+    def _simulate_calculation(self, index=0):
+        if index is None:
+            index = self._default_index
+        try:
+            self.config_file_paths[index]
+        except KeyError:
+            raise ValueError(f"No configuration was found for dataset {index}")
+        print("Starting matchSeries, this can take a while.")
+        print("Follow the progress in the terminal window.")
+        print("The calculation is done, saving data.")
+        success = self.success
+        success.append(index)
+        self["data"].attrs["calculation_success"] = list(set(success))
+        print("Done.")
+
+    @property
+    def _default_index(self):
+        return self._image_dataset_indexes[0]
+
+    def load_configuration(self, index=None):
+        if index is None:
+            index = self._default_index
+        cfp = self.config_file_paths[index]
+        return ctools.load_config(cfp)
+
+    def modify_configuration(self, dic, index=None):
+        cfp = self.config_file_paths[index]
+        cf = self.load_configuration(index=index)
+        for k, v in dic.items():
+            cf[k] = v
+        cf.save(cfp)
+
+    def calculate_deformations(self, index=None):
         """Run match series for a particular config file"""
+        if index is None:
+            index = self._default_index
         try:
             config_file = self.config_file_paths[index]
         except KeyError:
             raise ValueError(f"No configuration was found for dataset {index}")
-        cmd = [str("matchSeries"), f"{config_file}"]
+        cmd = ["matchSeries", f"{config_file}"]
+        print("Starting matchSeries, this can take a while.")
+        print("Follow the progress in the terminal window.")
         try:
-            process1 = subprocess.Popen(cmd, stdout=subprocess.STDOUT)
+            process1 = subprocess.Popen(cmd)
             process1.wait()
         except Exception as e:
             raise OSError("matchSeries was not found on your system. "
                           "Please conda install matchSeries or compile "
                           f"from source. Additional error info: {e}")
+        print("The calculation is done, saving data.")
         success = self.success
         success.append(index)
         self["data"].attrs["calculation_success"] = list(set(success))
-
-    def get_spectrum_dataset(self, index=0):
-        """Get the original input dataset as a hyperspy signal"""
-        fp = self["data"].attrs["data_file_path"]
-        if index not in self._spectroscopy_dataset_indexes:
-            raise ValueError(f"Dataset with index {index} not found")
-        if not fp == "_None_":
-            try:
-                f = hs.load(fp, sum_frames=False, lazy=True,
-                            load_SI_image_stack=True)
-                data = f[index]
-            except Exception as e:
-                raise e
-        else:
-            raise ValueError("No dataset could be found")
-        return data
-
-    def get_input_image_dataset(self, index=0):
-        """Get the original input dataset as a hyperspy signal"""
-        fp = self["data"].attrs["data_file_path"]
-        if index not in self._image_dataset_indexes:
-            raise ValueError(f"Dataset with index {index} not found")
-        if not fp == "_None_":
-            try:
-                f = hs.load(fp, sum_frames=False, lazy=True,
-                            load_SI_image_stack=True)
-                data = f[index]
-            except Exception as e:
-                raise e
-        else:
-            try:
-                data = hs.signals.Signal2D(f["data"]["data"][()])
-            except Exception:
-                raise ValueError("No dataset could be found")
-        return data
+        print("Done.")
 
     def _get_stage_bznum(self, index):
         """For extracting the right defx and defy"""
         cf_path = self.config_file_paths[index]
         cf_dic = ctools.load_config(cf_path)
-        bznumber = cf_dic["stopLevel"].zfill(2)
+        bznumber = str(cf_dic["stopLevel"]).zfill(2)
         stage = int(cf_dic["numExtraStages"])+1
         return stage, bznumber
 
-    def get_deformations(self, image_set_index, frame_index):
+    def _get_frame_list(self, index):
+        cfn = self.config_file_paths[index]
+        cf = ctools.load_config(cfn)
+        sf = cf["templateSkipNums"]
+        numframes = cf["numTemplates"]
+        numoffset = cf["templateNumOffset"]
+        numstep = cf["templateNumStep"]
+        frames = range(numoffset, numframes, numstep)
+        frames = [i for i in frames if i not in sf]
+        return frames
+
+    def get_deformations_frame(self, frame_index, image_set_index=None):
         """Return the X and Y deformations as numpy arrays"""
+        if image_set_index is None:
+            image_set_index = self._default_index
         if image_set_index not in self.success:
             raise ValueError("No successful calculation found for index "
                              f"{image_set_index}")
@@ -561,8 +579,7 @@ class MatchSeries(h5py.File):
             result_folder = self.calculation_output_paths[image_set_index]
         except Exception:
             raise ValueError("This index does not correspond to valid data")
-        dt = self.get_input_image_dataset(image_set_index)
-        frames = dt.data.shape[0]
+        frms = self._get_frame_list(image_set_index)
         i = frame_index
         result_folder = self.calculation_output_paths[image_set_index]
         stage, bznumber = self._get_stage_bznum(image_set_index)
@@ -573,7 +590,7 @@ class MatchSeries(h5py.File):
             defY = _loadFromQ2bz(
                     str(Path(f"{result_folder}/stage{stage}/{i}/"
                              f"deformation_{bznumber}_1.dat.bz2")))
-        elif frame_index < frames:
+        elif frame_index <= max(frms):
             defX = _loadFromQ2bz(
                     str(Path(f"{result_folder}/stage{stage}/{i}-r/"
                              f"deformation_{bznumber}_0.dat.bz2")))
@@ -584,144 +601,81 @@ class MatchSeries(h5py.File):
             raise ValueError("The index is out of bounds")
         return defX, defY
 
-    @staticmethod
-    def deform_data(stack, defX, defY):
-        w, h = stack.data.shape[-2:]
-        coords = \
-            np.mgrid[0:h, 0:w] + np.multiply([defY, defX], (np.max([h, w])-1))
+    def load_deformations_as_signal2D(self, index=None):
+        """Loads the deformation stack as imaginary X + iY dataset"""
+        if index is None:
+            index = self._default_index
+        frames = self._get_frame_list(index)
+        numframes = len(frames)
+        newshape = (numframes,
+                    self["data"].attrs["x_size"],
+                    self["data"].attrs["x_size"],)
+        axlist = [
+                {
+                    "name": "frames",
+                    "size": numframes,
+                    "navigate": True,
+                },
+                {
+                    "name": "y",
+                    "size": self["data"].attrs["y_size"],
+                    "units": self["data"].attrs["y_unit"],
+                    "scale": self["data"].attrs["y_scale"],
+                    "navigate": False,
+                },
+                {
+                    "name": "x",
+                    "size": self["data"].attrs["x_size"],
+                    "units": self["data"].attrs["x_unit"],
+                    "scale": self["data"].attrs["x_scale"],
+                    "navigate": False,
+                },
+                ]
+        newds = hs.signals.ComplexSignal2D(np.zeros(newshape), axes=axlist)
+        for j, i in enumerate(frames):
+            defs = self.get_deformations_frame(i, image_set_index=index)
+            def_imag = defs[0] + 1j*defs[1]
+            newds.inav[j] = def_imag
+        return newds
 
-        def mapping(x):
-            return ndimage.map_coordinates(x, coords, order=0,
-                                           mode="constant"),
-        result = stack.map(mapping, inplace=False, parallel=True)
-        return result
+    def apply_deformations_to_images(self, stack, index=None):
+        if index is None:
+            index = self._default_index
+        frames = self._get_frame_list(index)
+        numframes = len(frames)
+        newshape = (numframes, *stack.data.shape[-2:])
+        axes = stack.axes_manager.as_dictionary()
+        axes["axis-0"]["size"] = numframes
+        axlist = [axes["axis-0"], axes["axis-1"], axes["axis-2"]]
+        newds = hs.signals.Signal2D(np.zeros(newshape), axes=axlist)
+        for j, i in enumerate(frames):
+            print(f"Processed frame {j+1}/{numframes}")
+            defs = self.get_deformations_frame(i, image_set_index=index)
+            newds.inav[j] = deform_data(stack.inav[i], defs)
+        return newds
 
-    def apply_deformations(self, result_index=0, image_index=None,
-                           spectra_index=None):
-        """
-        Apply the deformations calculated by match-series to images and
-        optionally spectra. The resulting deformed images and spectra are
-        written out to a folder for later import if necessary.
-
-        Parameters
-        ----------
-        result_folder : str
-            path to the folder where non rigid registration saved its result
-        image_folder : str, optional
-            path to the folder where the images are stored to which the
-            deformations need to be applied. By default it takes the images
-            used for the calculation.
-        spectra_folder : str, optional
-            path to the folder where the spectrum stream frames reside to which
-            the deformation should be applied. If None, then no spectra are
-            corrected
-        """
-
-        if result_index in self.results_paths:
-            res_folder = str(Path(self.results_paths[result_index]))
-        else:
-            raise ValueError(f"No result found for index {result_index}")
-        config_file = self.config_file_paths[result_index]
-        if image_index is None:
-            image_index = result_index
-        if image_index in self.image_hspy_paths:
-            images = hs.load(self.image_hspy_paths[result_index], lazy=True)
-        # get basic info about the images
-        (dataBaseName, counter, imgext, frames, skipframes, bznumber,
-            stage) = _getNameCounterFrames(config_file)
-        # loop over files
-        im_frm_list = []
-        spec_frm_list = []
-        firstframe = True
-        for i in range(frames):
-            if i in skipframes:
-                continue
-            c = str(i).zfill(counter)
-            imname = str(Path(
-                f"{parfolder}/{imfolder}/{dataBaseName}_{c}.{imgext}"))
-            image = images.get_frame(i)
-            logger.info(f"Processing frame {i}: {imname}")
-            if firstframe:
-                defX = loadFromQ2bz(str(Path(f"{result_folder}/stage{stage}/{i}/"
-                                    f"deformation_{bznumber}_0.dat.bz2")))
-                defY = loadFromQ2bz(str(Path(f"{result_folder}/stage{stage}/{i}/"
-                                    f"deformation_{bznumber}_1.dat.bz2")))
-                firstframe = False
-            else:
-                defX = loadFromQ2bz(str(Path(f"{result_folder}/stage{stage}/{i}-r/"
-                                    f"deformation_{bznumber}_0.dat.bz2")))
-                defY = loadFromQ2bz(str(Path(f"{result_folder}/stage{stage}/{i}-r/"
-                                    f"deformation_{bznumber}_1.dat.bz2")))
-            w = image.width
-            h = image.height
-            coords = \
-                np.mgrid[0:h, 0:w] + np.multiply([defY, defX], (np.max([h, w])-1))
-            deformedData = ndimage.map_coordinates(image.data, coords, order=0,
-                                                   mode='constant',
-                                                   cval=image.data.mean())
-            defImage = dio.create_new_image(deformedData, image.pixelsize,
-                                            image.pixelunit, parent=image,
-                                            process=("Applied non rigid "
-                                                     "registration"))
-            im_frm_list.append(defImage)
-            if spec_list:
-                logger.info("Correcting corresponding spectrum frame")
-                spectra = spec_list[i]
-                spectradef = dio.SpectrumStream._reshape_sparse_matrix(
-                                    spectra, specstr.dimensions)
-                image_stack = hs.signals.Signal2D(spectradef)
-                image_stack.axes_manager[1].name = "x"
-                image_stack.axes_manager[2].name = "y"
-                result = image_stack.map(
-                            lambda x: ndimage.map_coordinates(
-                                x, coords, order=0, mode="constant"),
-                            inplace=False, parallel=True)
-                result.unfold()
-                defspec_sp = csr_matrix(result.data.T)  # sparse matrix rep
-                spec_frm_list.append(defspec_sp)
-        # also do the post processing, with temmeta it's a minor thing
-        logger.info("Calculating average image (undeformed)")
-        resultFolder = str(Path(parfolder+f"/results_{numbering}/"))
-        if not os.path.isdir(resultFolder):
-            os.makedirs(resultFolder)
-        # average image
-        averageUndeformed = images.average()
-        averageUndeformed.to_hspy(str(Path(resultFolder+"/imageUndeformed.hspy")))
-        write_as_image(averageUndeformed.data,
-                       str(Path(resultFolder+f"/imageUndeformed.{imgext}")))
-        # average image from deformed
-        logger.info("Calculating average image (deformed)")
-        defstack = dio.images_to_stack(im_frm_list)
-        averageDeformed = defstack.average()
-        averageDeformed.to_hspy(str(Path(resultFolder+"/imageDeformed.hspy")))
-        write_as_image(averageDeformed.data,
-                       str(Path(resultFolder+f"/imageDeformed.{imgext}")))
-        # also write out frames to individual files
-        defstack.export_frames(defImagesFolder, name=dataBaseName, counter=counter)
-        if spectra_folder is not None:
-            # averaged spectrum
-            logger.info("Calculating average spectrum (undeformed)")
-            spectrumUndeformed = specstr.spectrum_map
-            spectrumUndeformed.to_hspy(str(Path(
-                resultFolder+"/spectrumUndeformed.hspy")))
-            # averaged spectrum deformed
-            logger.info("Calculating average spectrum (deformed)")
-            specstr_data = dio.SpectrumStream._stack_frames(spec_frm_list)
-            specstr_def = dio.SpectrumStream(specstr_data,
-                                             specstr.metadata)
-            # edit the number of frames
-            specstr_def.metadata.data_axes["frame"]["bins"] = len(spec_frm_list)
-            specstr_def.export_streamframes(defSpectraFolder,
-                                            pre=dataBaseName,
-                                            counter=counter)
-            spectrumDeformed = specstr_def.spectrum_map
-            spectrumDeformed.to_hspy(str(Path(
-                    resultFolder+"/spectrumDeformed.hspy")))
-            return (averageUndeformed, averageDeformed,
-                    spectrumUndeformed, spectrumDeformed)
-        else:
-            return (averageUndeformed, averageDeformed,
-                    None, None)
+    def apply_deformations_to_spectra(self, specmap, index=None):
+        if specmap.data.ndim != 4:
+            raise ValueError("Spectrum map should be provided as individual "
+                             "frames. Please read in with flag "
+                             "sum_frames=False.")
+        if index is None:
+            index = self._default_index
+        frames = self._get_frame_list(index)
+        numframes = len(frames)
+        newshape = (specmap.axes_manager[0].size,
+                    specmap.axes_manager[1].size,
+                    specmap.axes_manager[3].size)
+        axes = specmap.axes_manager.as_dictionary()
+        axes["axis-0"]["size"] = numframes
+        axlist = [axes["axis-1"], axes["axis-2"], axes["axis-3"]]
+        newds = hs.signals.EDSTEMSpectrum(np.zeros(newshape), axes=axlist)
+        for j, i in enumerate(frames):
+            print(f"Processed frame {j+1}/{numframes}")
+            defs = self.get_deformations_frame(i, image_set_index=index)
+            to_add = deform_data(specmap.inav[:, :, i].T, defs).T
+            newds.data = newds.data + to_add.data
+        return newds
 
 
 def _save_frame_to_file(i, data, path, name, counter, data_format="tiff"):
@@ -826,32 +780,28 @@ def _loadFromQ2bz(path):
     return img
 
 
-def _getNameCounterFrames(path):
+def deform_data(stack, deformations):
     """
-    Extract relevant information from the config file for processing
+    Apply X and Y deformation fields to a stack of images or a spectrum
+    map in place
 
     Parameters
     ----------
-    path : str
-        path to the .par config file
+    stack : hs.signals.Signal2D
+        Stack of images
+    deformations : (X, Y), with X and Y same size as images
+        Deformation fields, must be same size as  the data
 
-    Returns:
-    tuple of (base name, number of counter digits, extension, number of frames,
-              skipped frames, stoplevel, number of stages)
+    Returns
+    -------
+    result : hs.signals.Signal2d
     """
-    with open(path) as f:
-        text = f.read()
+    defX, defY = deformations
+    w, h = stack.data.shape[-2:]
+    coords = \
+        np.mgrid[0:h, 0:w] + np.multiply([defY, defX], (np.max([h, w])-1))
 
-    basename, counter, ext = re.findall(
-        r"[\/\\]([^\/\\]+)_%0(.+)d\.([A-Za-z0-9]+)", text)[0]
-    counter = int(counter)
-    numframes = int(re.findall(r"numTemplates ([0-9]+)", text)[0])
-    try:
-        skipframes_line = re.findall(r"[^\# *]templateSkipNums (.*)", text)[0]
-        skipframes = re.findall(r"([0-9]+)[^0-9]", skipframes_line)
-        skipframes = list(map(int, skipframes))
-    except Exception:  # when commented out, will give error
-        skipframes = []
-    bznumber = re.findall(r"stopLevel +([0-9]+)", text)[0].zfill(2)
-    stages = int(re.findall(r"numExtraStages +([0-9]+)", text)[0])+1
-    return (basename, counter, ext, numframes, skipframes, bznumber, stages)
+    def mapping(x):
+        return ndimage.map_coordinates(x, coords, order=0,
+                                       mode="constant")
+    return stack.map(mapping, inplace=False, parallel=True, ragged=False)
