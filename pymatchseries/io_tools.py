@@ -18,6 +18,8 @@ import h5py
 import warnings
 from scipy import ndimage
 from temmeta import data_io as dio
+from scipy.sparse import csr_matrix
+import gc
 
 from . import config_tools as ctools
 
@@ -695,15 +697,12 @@ class MatchSeries(h5py.File):
             index = self._default_index
         frames = self._get_frame_list(index)
         numframes = len(frames)
-        newshape = (specstr.dimensions[2],
-                    specstr.dimensions[1],
-                    specstr.dimensions[0])
         ax = specstr.metadata.data_axes
         ax_x = ax.scan_x
         ax_y = ax.scan_y
         ax_c = ax.channel
         axes = []
-        for n, a in zip(["x", "y", "X-ray energy"], [ax_x, ax_y, ax_c]):
+        for n, a in zip(["x", "y", "X-ray energy"], [ax_y, ax_x, ax_c]):
             axx = {
                     "size": a.bins,
                     "units": a.unit,
@@ -712,16 +711,26 @@ class MatchSeries(h5py.File):
                     "scale": a.scale
                    }
             axes.append(axx)
-        newds = hs.signals.EDSTEMSpectrum(np.zeros(newshape), axes=axes)
+        spec_frm_list = []
+        axim = [axes[2], axes[0], axes[1]]
         for j, i in enumerate(frames):
             defs = self.get_deformations_frame(i, image_set_index=index)
             spectra = spec_list[i]
             spectradef = dio.SpectrumStream._reshape_sparse_matrix(
                                 spectra, specstr.dimensions)
-            image_stack = hs.signals.Signal2D(spectradef)
+            image_stack = hs.signals.Signal2D(spectradef, axes=axim)
             to_add = deform_data(image_stack, defs).T
-            newds = newds + to_add.set_signal_type("EDS_TEM")
+            to_add.unfold()
+            defspec_sp = csr_matrix(to_add.data.T)
+            spec_frm_list.append(defspec_sp.T)
             print(f"Processed frame {j+1}/{numframes}")
+            gc.collect()
+        specstr_data = dio.SpectrumStream._stack_frames(spec_frm_list)
+        specstr_def = dio.SpectrumStream(specstr_data, specstr.metadata)
+        specstr_def.metadata.data_axes["frame"]["bins"] = len(spec_frm_list)
+        spectrumDeformed = specstr_def.spectrum_map
+        newds = spectrumDeformed.to_hspy().T
+        newds.set_signal_type("EDS_TEM")
         return newds
 
 
