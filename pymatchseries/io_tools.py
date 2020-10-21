@@ -23,6 +23,7 @@ from . import config_tools as ctools
 
 DEFAULT_FILENAME = "./matchseries_calculation.yaml"
 DEFAULT_PREFIX = "frame"
+IMDF = "png"
 
 
 def _get_counter(number_of_frames):
@@ -280,7 +281,7 @@ class MatchSeries(h5py.File):
                                  f"{title}.par")
         pathpattern = os.path.join(
                 output_folder,
-                f"{title}/{DEFAULT_PREFIX}_%0{digits}d.tiff")
+                f"{title}/{DEFAULT_PREFIX}_%0{digits}d.{IMDF}")
         # already create the folder for the output
         outputpath = os.path.join(output_folder,
                                   f"{title}_results/")
@@ -450,7 +451,8 @@ class MatchSeries(h5py.File):
                                          f"{pn}/{k}_{title}.par")
                 pathpattern = os.path.join(
                         output_folder,
-                        f"{pn}/{k}_{title}/{DEFAULT_PREFIX}_%0{digits}d.tiff")
+                        f"{pn}/{k}_{title}/{DEFAULT_PREFIX}_%0{digits}d."
+                        f"{IMDF}")
                 # already create the folder for the output
                 outputpath = os.path.join(output_folder,
                                           f"{pn}/{k}_{title}_results/")
@@ -723,7 +725,7 @@ class MatchSeries(h5py.File):
         return newds
 
 
-def _save_frame_to_file(i, data, path, name, counter, data_format="tiff"):
+def _save_frame_to_file(i, data, path, name, counter, data_format=IMDF):
     """Helper function for multithreading, saving frame i of stack"""
     c = str(i).zfill(counter)
     fp = str(Path(f"{path}/{name}_{c}.{data_format}"))
@@ -732,6 +734,8 @@ def _save_frame_to_file(i, data, path, name, counter, data_format="tiff"):
         frm = frm.compute()
     except Exception:
         pass
+    if data_format == "png":
+        frm = (frm/2**8).astype("uint8")
     img = Image.fromarray(frm)
     img.save(fp)
     logging.debug("Wrote out image {name}_{c}")
@@ -751,7 +755,7 @@ class _FrameByFrame(object):
 
 def _export_frames(stack, output_folder=None, prefix="frame",
                    digits=None, frames=None, multithreading=True,
-                   data_format="tiff"):
+                   data_format=IMDF):
     """
     Export a 3D data array as individual images
     """
