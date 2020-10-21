@@ -5,10 +5,10 @@ The goal of match-series is to remove slow and fast scan noise in STEM image sta
 
 To install, simply pip install:
 ```
-$ pip install --user pymatchseries
+$ pip install --user pyMatchSeries
 ```
 
-Note that, since it directly tries to call the matchSeries binary in a subprocess, **you must compile and install match-series on your own**. The program is available via conda install:
+Note that, since it directly tries to call the matchSeries binary in a subprocess, **you must compile and/or install match-series on your own**. The program is available via conda install:
 
 ```
 $ conda install -c conda-forge match-series
