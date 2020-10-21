@@ -1,34 +1,99 @@
+#############
+### Input ###
+#############
+# the path and naming pattern of the image series. When using the python wrapper this will be filled out automatically
 templateNamePattern " "
+# the first frame to start the calculation
 templateNumOffset 0
+# the step between subsequent images. If 1 then images are 0, 1, 2, 3, 4, ..., if 2 then images are 0, 2, 4, 6, ...
 templateNumStep 1
+# maximum number of images to consider.
 numTemplates 0
+# list of images to skip. Enter as space separated indexes between the curly braces, or use a list in the python wrapper.
 templateSkipNums {  }
+
+######################
+### Pre-processing ###
+######################
+# smooth the images with a gaussian. If 0 then the images are not smoothed. Otherwise the sigma of the gaussian is determined by this parameter.
 preSmoothSigma 0
-saveRefAndTempl 0
-numExtraStages 2
-saveDirectory " "
+# map the intensity to the range 0-1 by default (0). If 1 then don't do that.
 dontNormalizeInputImages 0
+# enhance contrast of the images mainly to cut off outliers.
 enhanceContrastSaturationPercentage 0.15
+# minimum intensity in the image is mapped to 0
 normalizeMinToZero 1
-lambda 200
-lambdaFactor 1
+
+###################
+### Calculation ###
+###################
+# Rigid registration
+# ------------------
+# Pre-align images with rigid registration (translation) using cross-correlation
+useCorrelationToInitTranslation 0
+# The maximum translation in pixels of each image in this alignment. 0 = no limit on the translation
+maxCorrShift 0
+
+# Gradient descent settings
+# -------------------------
+# Maximum number of gradient descent steps
 maxGDIterations 500
+# Desired "precision" to be achieved during gradient descent
 stopEpsilon 1e-6
+# regularization factor in the first stage, highest level
+lambda 200
+# regularization factor update per level. For example, if you have images of level 8, then lambda will be applied in 8, lambda * lambdaFactor in 7, lambda * lambdaFactor^2 in 6...
+lambdaFactor 1
+
+# Levels
+# ------
+# the resolution of the deformation grid. These are to be interpreted as the power of 2 size of the grid. Most of these should be filled out by default if you use the python wrapper.
+# the starting level of the grid, i.e. the optimization will first be done on a grid of size 2^startLevel x 2^startlevel.
 startLevel 6
+# the stopping level of the grid. i.e. deformations are not calculated beyond this resolution even if images have more pixels. If you want the resolution to equal the resolution of the images, stoplevel = log_2(image sidelength) = precisionLevel. Higher levels take longer to compute.
 stopLevel 8
+# the precision of the input images = log_2(image sidelength)
 precisionLevel 8
+# in the refinement step start at this level
 refineStartLevel 7
+# in the refinement step stop at this level
 refineStopLevel 8
+# ?
 checkboxWidth 8
+# resize the input images to the stop level, if different from precision level.
 resizeInput 0
-dontAccumulateDeformation 0
-reuseStage1Results 1
+
+# Miscellaneous
+# -------------
+# number of times the entire calculation is performed
+numExtraStages 2
+# adjustment of lambda in subsequent stages. Usually <1 because needed adjustments are minor
 extraStagesLambdaFactor 0.1
+# use bilinear interpolation versus nearest neighbors when going to next step (level)
+resampleInsteadOfProlongateDeformation 1
+# if 0 compare images sequentially, if 1 compare images always to the first frame
+dontAccumulateDeformation 0
+# compare to the median image if true, else compare to the mean
 useMedianAsNewTarget 1
-calcInverseDeformation 0
+# if you already calculated stage 1, skip it if True
 skipStage1 0
-saveNamedDeformedTemplates 1
-saveNamedDeformedTemplatesUsingNearestNeighborInterpolation 1
-saveNamedDeformedTemplatesExtendedWithMean 1
-saveDeformedTemplates 1
-saveNamedDeformedDMXTemplatesAsDMX 1
+# if you use the previous option, use the results from that step or not
+reuseStage1Results 1
+# remove the bias from comparing to the first frame.
+reduceDeformations 1
+
+##############
+### Output ###
+##############
+# Folder where the output is saved
+saveDirectory " "
+# Only save the displacements
+calcInverseDeformation 0
+# Options below mainly options for debugging and saving out more output beyond displacements
+onlySaveDisplacement 1
+saveNamedDeformedTemplates 0
+saveNamedDeformedTemplatesUsingNearestNeighborInterpolation 0
+saveNamedDeformedTemplatesExtendedWithMean 0
+saveDeformedTemplates 0
+saveNamedDeformedDMXTemplatesAsDMX 0
+saveRefAndTempl 0

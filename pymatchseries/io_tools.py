@@ -11,11 +11,13 @@ import os
 import numpy as np
 import bz2
 import hyperspy.api as hs
+from hyperspy._signals.eds_tem import LazyEDSTEMSpectrum
 import sys
 from tabulate import tabulate
 import h5py
 import warnings
 from scipy import ndimage
+from temmeta import data_io as dio
 
 from . import config_tools as ctools
 
@@ -649,12 +651,20 @@ class MatchSeries(h5py.File):
         axlist = [axes["axis-0"], axes["axis-1"], axes["axis-2"]]
         newds = hs.signals.Signal2D(np.zeros(newshape), axes=axlist)
         for j, i in enumerate(frames):
-            print(f"Processed frame {j+1}/{numframes}")
             defs = self.get_deformations_frame(i, image_set_index=index)
             newds.inav[j] = deform_data(stack.inav[i], defs)
+            print(f"Processed frame {j+1}/{numframes}")
         return newds
 
     def apply_deformations_to_spectra(self, specmap, index=None):
+        if isinstance(specmap, hs.signals.EDSTEMSpectrum):
+            return self._apply_deformations_to_spectra_hs(specmap, index)
+        elif isinstance(specmap, dio.SpectrumStream):
+            return self._apply_deformations_to_spectra_tm(specmap, index)
+        else:
+            raise TypeError(f"{type(specmap)} is not a recognized spectrum")
+
+    def _apply_deformations_to_spectra_hs(self, specmap, index=None):
         if specmap.data.ndim != 4:
             raise ValueError("Spectrum map should be provided as individual "
                              "frames. Please read in with flag "
@@ -669,12 +679,47 @@ class MatchSeries(h5py.File):
         axes = specmap.axes_manager.as_dictionary()
         axes["axis-0"]["size"] = numframes
         axlist = [axes["axis-1"], axes["axis-2"], axes["axis-3"]]
-        newds = hs.signals.EDSTEMSpectrum(np.zeros(newshape), axes=axlist)
+        newds = LazyEDSTEMSpectrum(np.zeros(newshape), axes=axlist)
         for j, i in enumerate(frames):
-            print(f"Processed frame {j+1}/{numframes}")
             defs = self.get_deformations_frame(i, image_set_index=index)
             to_add = deform_data(specmap.inav[:, :, i].T, defs).T
-            newds.data = newds.data + to_add.data
+            newds = newds + to_add
+            print(f"Processed frame {j+1}/{numframes}")
+        return newds
+
+    def _apply_deformations_to_spectra_tm(self, specstr, index=None):
+        spec_list = specstr._get_frame_list()
+        if index is None:
+            index = self._default_index
+        frames = self._get_frame_list(index)
+        numframes = len(frames)
+        newshape = (specstr.dimensions[2],
+                    specstr.dimensions[1],
+                    specstr.dimensions[0])
+        ax = specstr.metadata.data_axes
+        ax_x = ax.scan_x
+        ax_y = ax.scan_y
+        ax_c = ax.channel
+        axes = []
+        for n, a in zip(["x", "y", "X-ray energy"], [ax_x, ax_y, ax_c]):
+            axx = {
+                    "size": a.bins,
+                    "units": a.unit,
+                    "offset": a.offset,
+                    "name": n,
+                    "scale": a.scale
+                   }
+            axes.append(axx)
+        newds = hs.signals.EDSTEMSpectrum(np.zeros(newshape), axes=axes)
+        for j, i in enumerate(frames):
+            defs = self.get_deformations_frame(i, image_set_index=index)
+            spectra = spec_list[i]
+            spectradef = dio.SpectrumStream._reshape_sparse_matrix(
+                                spectra, specstr.dimensions)
+            image_stack = hs.signals.Signal2D(spectradef)
+            to_add = deform_data(image_stack, defs).T
+            newds = newds + to_add.set_signal_type("EDS_TEM")
+            print(f"Processed frame {j+1}/{numframes}")
         return newds
 
 
