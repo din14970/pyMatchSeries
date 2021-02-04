@@ -41,7 +41,7 @@ class config_dict(dict):
         if key not in self:
             raise KeyError(f"{key} not a valid option")
         if isinstance(value, bool):
-            value = value*1
+            value = value * 1
         if isinstance(value, list):
             stringlist = " ".join(map(str, value))
             value = f"{{ {stringlist} }}"
@@ -50,8 +50,33 @@ class config_dict(dict):
     def save(self, path):
         write_config(self, path)
 
+    def _get_stage_bznum(self):
+        """For extracting the right defx and defy"""
+        bznumber = str(self["stopLevel"]).zfill(2)
+        stage = int(self["numExtraStages"]) + 1
+        return stage, bznumber
 
-def load_config(path):
+    def _get_frame_list(self):
+        """Get indices of all frames to calculate on"""
+        sf = self["templateSkipNums"]
+        numframes = self["numTemplates"]
+        numoffset = self["templateNumOffset"]
+        numstep = self["templateNumStep"]
+        frames = range(numoffset, numframes, numstep)
+        frames = [i for i in frames if i not in sf]
+        return frames
+
+    def _get_frame_index_iterator(self):
+        """Get a range to loop over all the indices of the output"""
+        numframes = self["numTemplates"]
+        sf = self["templateSkipNums"]
+        numstep = self["templateNumStep"]
+        return range((numframes - len(sf)) // numstep)
+
+
+def load_config(path=None):
+    if path is None:
+        path = DEFAULT_CONFIG_PATH
     with open(path) as f:
         config = f.read()
     options = re.findall(r"^(\w+)\s+(.+)$", config, flags=re.M)
@@ -61,15 +86,43 @@ def load_config(path):
 def write_config(options, path):
     config = ""
     for key, value in options.items():
-        config = config+str(key)+" "+str(value)+"\n"
+        config = config + str(key) + " " + str(value) + "\n"
     with open(path, "w") as f:
         f.write(config)
 
 
-def create_config_file(filename, pathpattern, savedir,
-                       preclevel, num_frames,
-                       skipframes=[],
-                       startleveloffset=2, **kwargs):
+def get_configuration(
+    templateNamePattern,
+    saveDirectory,
+    precisionLevel,
+    numTemplates,
+    templateSkipNums=[],
+    startLevelOffset=2,
+    **kwargs,
+):
+    try:
+        config_dict = load_config(DEFAULT_CONFIG_PATH)
+    except Exception as e:
+        print(f"Something went wrong reading the default config file: {e}")
+        sys.exit()
+    config_dict["templateNamePattern"] = templateNamePattern
+    config_dict["saveDirectory"] = saveDirectory
+    config_dict["numTemplates"] = numTemplates
+    templateSkipNums = " ".join(map(str, templateSkipNums))
+    config_dict["templateSkipNums"] = f"{{ {templateSkipNums} }}"
+    config_dict["startLevel"] = precisionLevel - startLevelOffset
+    config_dict["stopLevel"] = precisionLevel
+    config_dict["precisionLevel"] = precisionLevel
+    config_dict["refineStartLevel"] = precisionLevel - 1
+    config_dict["refineStopLevel"] = precisionLevel
+    for key, value in kwargs.items():
+        if isinstance(value, bool):
+            value = value * 1
+        config_dict[key] = value
+    return config_dict
+
+
+def create_config_file(filename, *args, **kwargs):
     """
     Wrapper function to create a standard config file
 
@@ -77,106 +130,60 @@ def create_config_file(filename, pathpattern, savedir,
     ----------
     filename : str
         path to the config file
-    pathpattern : str
+    templateNamePattern : str
         string pattern for input image files
-    savedir : str
+    saveDirectory : str
         path to output folder
-    preclevel : int
+    precisionLevel : int
         log2 of the image width and height
-    num_frames : int
+    numTemplates : int
         number of images to process
-    skipframes : list, optional
+    templateSkipNums : list, optional
         list of indexes of frames to ignore
-    startleveloffset : int, optional
-        offset of the start level, lower than the `preclevel`
+    startLevelOffset : int, optional
+        offset of the start level, lower than the `precisionLevel`
 
     Other parameters
     ----------------
+    See default_parameters.param file for details
     templateNamePattern : str, optional
-        Same as `pathpattern`, will take precedence
-    saveDirectory : str, optional
-        Same as `savedir`, will take precedence
-    numTemplates : int, optional
-        Same as `num_frames`, will take precedence
-    templateSkipNums : str, optional
-        Equivalent to `skipframes`, will take precedence. Must be string.
-    startLevel : int, optional
-        Equivalent to preclevel - startleveloffset. Will take precedence.
-    stopLevel : int, optional
-        Equivalent to `preclevel`, will take precedence
-    precisionLevel: int, optional
-        Default is `preclevel`
-    refineStartLevel: int, optional
-        Default is `preclevel`-1
-    refineStopLevel: int, optional
-        Default is `preclevel`
     templateNumOffset : int, optional
-        index of first image to process. Default is 0.
     templateNumStep : int, optional
-        to skip frames at regular interval. Default is 1.
-    preSmoothSigma : int, optional
-        smooth images with gaussion of sigma before usage. Default is 0.
-    saveRefAndTempl : bool, optional
-        save both the reference and the template. Default is False.
-    numExtraStages : int, optional
-        number of stages. Default is 2.
+    numTemplates : int, optional
+    templateSkipNums : list, optional
+    preSmoothSigma : float, optional
     dontNormalizeInputImages : bool, optional
-        do not normalize the input images. Default is False.
     enhanceContrastSaturationPercentage : float, optional
-        brightness/contrast adjustment. Default is 0.15.
     normalizeMinToZero : bool, optional
-        minimum intensity mapped to 0. Default is True.
-    lambda : int, optional
-        regularization factor used in optimization level 1. Default is 200.
-    lambdaFactor : float, optional
-        adjustment of reg parameter with subsequent binnings. Default is 1.
+    useCorrelationToInitTranslation : bool, optional
+    maxCorrShift : int, optional
     maxGDIterations : int, optional
-        max number of iterations. Default is 500.
     stopEpsilon : float, optional
-        desired precision. Default is 1e-6.
-    extraStagesLambdaFactor : int, optional
-        adjustment of regularization with subsequent steps. Default is 0.1.
+    lambda : int, optional
+    lambdaFactor : float, optional
+    startLevel : int, optional
+    stopLevel : int, optional
+    precisionLevel: int, optional
+    refineStartLevel: int, optional
+    refineStopLevel: int, optional
     resizeInput : bool, optional
-        change size of input images. Default is False.
+    numExtraStages : int, optional
+    extraStagesLambdaFactor : int, optional
+    resampleInsteadOfProlongateDeformation : bool, optional
     dontAccumulateDeformation : bool, optional
-        do not accumulate the deformations. Default is False.
-    reuseStage1Results : bool, optional
-        Default is 1
     useMedianAsNewTarget : bool, optional
-        Use median versus mean. Default is 1.
-    calcInverseDeformation : bool, optional
-        Default is 0
     skipStage1 : bool, optional
-        Default is 0
+    reuseStage1Results : bool, optional
+    reduceDeformations : bool, optional
+    saveDirectory : str, optional
+    calcInverseDeformation : bool, optional
+    onlySaveDisplacement : bool, optional
     saveNamedDeformedTemplates : bool, optional
-        Default is 1
     saveNamedDeformedTemplatesUsingNearestNeighborInterpolation : bool,optional
-        Default is 1
     saveNamedDeformedTemplatesExtendedWithMean: bool, optional
-        Default is 1
     saveDeformedTemplates : bool, optional
-        Default is 1
     saveNamedDeformedDMXTemplatesAsDMX : bool, optional
-        Default is 1
+    saveRefAndTempl : bool, optional
     """
-    try:
-        config_dict = load_config(DEFAULT_CONFIG_PATH)
-    except Exception as e:
-        print(f"Something went wrong reading the default config file: {e}")
-        sys.exit()
-    config_dict["templateNamePattern"] = pathpattern
-    config_dict["saveDirectory"] = savedir
-    config_dict["numTemplates"] = num_frames
-    skipframes = " ".join(map(str, skipframes))
-    config_dict["templateSkipNums"] = f"{{ {skipframes} }}"
-    config_dict["startLevel"] = preclevel - startleveloffset
-    config_dict["stopLevel"] = preclevel
-    config_dict["precisionLevel"] = preclevel
-    config_dict["refineStartLevel"] = preclevel-1
-    config_dict["refineStopLevel"] = preclevel
-    for key, value in kwargs.items():
-        if isinstance(value, bool):
-            value = value*1
-        config_dict[key] = value
+    config_dict = get_configuration(*args, **kwargs)
     config_dict.save(filename)
-    print(f"Created config file in {os.path.abspath(filename)}")
