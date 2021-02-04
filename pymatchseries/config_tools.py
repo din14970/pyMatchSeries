@@ -50,8 +50,33 @@ class config_dict(dict):
     def save(self, path):
         write_config(self, path)
 
+    def _get_stage_bznum(self):
+        """For extracting the right defx and defy"""
+        bznumber = str(self["stopLevel"]).zfill(2)
+        stage = int(self["numExtraStages"])+1
+        return stage, bznumber
 
-def load_config(path):
+    def _get_frame_list(self):
+        """Get indices of all frames to calculate on"""
+        sf = self["templateSkipNums"]
+        numframes = self["numTemplates"]
+        numoffset = self["templateNumOffset"]
+        numstep = self["templateNumStep"]
+        frames = range(numoffset, numframes, numstep)
+        frames = [i for i in frames if i not in sf]
+        return frames
+
+    def _get_frame_index_iterator(self):
+        """Get a range to loop over all the indices of the output"""
+        numframes = self["numTemplates"]
+        sf = self["templateSkipNums"]
+        numstep = self["templateNumStep"]
+        return range((numframes-len(sf)) // numstep)
+
+
+def load_config(path=None):
+    if path is None:
+        path = DEFAULT_CONFIG_PATH
     with open(path) as f:
         config = f.read()
     options = re.findall(r"^(\w+)\s+(.+)$", config, flags=re.M)
@@ -66,10 +91,33 @@ def write_config(options, path):
         f.write(config)
 
 
-def create_config_file(filename, pathpattern, savedir,
-                       preclevel, num_frames,
-                       skipframes=[],
-                       startleveloffset=2, **kwargs):
+def get_configuration(templateNamePattern, saveDirectory,
+                       precisionLevel, numTemplates,
+                       templateSkipNums=[],
+                       startLevelOffset=2, **kwargs):
+    try:
+        config_dict = load_config(DEFAULT_CONFIG_PATH)
+    except Exception as e:
+        print(f"Something went wrong reading the default config file: {e}")
+        sys.exit()
+    config_dict["templateNamePattern"] = templateNamePattern
+    config_dict["saveDirectory"] = saveDirectory
+    config_dict["numTemplates"] = numTemplates
+    templateSkipNums = " ".join(map(str, templateSkipNums))
+    config_dict["templateSkipNums"] = f"{{ {templateSkipNums} }}"
+    config_dict["startLevel"] = precisionLevel - startLevelOffset
+    config_dict["stopLevel"] = precisionLevel
+    config_dict["precisionLevel"] = precisionLevel
+    config_dict["refineStartLevel"] = precisionLevel-1
+    config_dict["refineStopLevel"] = precisionLevel
+    for key, value in kwargs.items():
+        if isinstance(value, bool):
+            value = value*1
+        config_dict[key] = value
+    return config_dict
+
+
+def create_config_file(filename, *args, **kwargs):
     """
     Wrapper function to create a standard config file
 
@@ -77,18 +125,18 @@ def create_config_file(filename, pathpattern, savedir,
     ----------
     filename : str
         path to the config file
-    pathpattern : str
+    templateNamePattern : str
         string pattern for input image files
-    savedir : str
+    saveDirectory : str
         path to output folder
-    preclevel : int
+    precisionLevel : int
         log2 of the image width and height
-    num_frames : int
+    numTemplates : int
         number of images to process
-    skipframes : list, optional
+    templateSkipNums : list, optional
         list of indexes of frames to ignore
-    startleveloffset : int, optional
-        offset of the start level, lower than the `preclevel`
+    startLevelOffset : int, optional
+        offset of the start level, lower than the `precisionLevel`
 
     Other parameters
     ----------------
@@ -132,24 +180,5 @@ def create_config_file(filename, pathpattern, savedir,
     saveNamedDeformedDMXTemplatesAsDMX : bool, optional
     saveRefAndTempl : bool, optional
     """
-    try:
-        config_dict = load_config(DEFAULT_CONFIG_PATH)
-    except Exception as e:
-        print(f"Something went wrong reading the default config file: {e}")
-        sys.exit()
-    config_dict["templateNamePattern"] = pathpattern
-    config_dict["saveDirectory"] = savedir
-    config_dict["numTemplates"] = num_frames
-    skipframes = " ".join(map(str, skipframes))
-    config_dict["templateSkipNums"] = f"{{ {skipframes} }}"
-    config_dict["startLevel"] = preclevel - startleveloffset
-    config_dict["stopLevel"] = preclevel
-    config_dict["precisionLevel"] = preclevel
-    config_dict["refineStartLevel"] = preclevel-1
-    config_dict["refineStopLevel"] = preclevel
-    for key, value in kwargs.items():
-        if isinstance(value, bool):
-            value = value*1
-        config_dict[key] = value
+    get_configuration(*args, **kwargs)
     config_dict.save(filename)
-    print(f"Created config file in {os.path.abspath(filename)}")
