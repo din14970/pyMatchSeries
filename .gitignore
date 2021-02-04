@@ -1,5 +1,7 @@
 tags
 examples/data/**
+examples/sample_data_HAADF
+examples/tester
 **.hdf5
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,jupyternotebooks
