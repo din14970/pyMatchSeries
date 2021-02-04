@@ -21,7 +21,7 @@ def _save_frame_to_file(i, data, folder, prefix, digits, data_format="tiff"):
         pass
     # in case of a weird datatype
     if not (frm.dtype == np.uint16 or frm.dtype == np.uint8):
-        frm = (frm - frm.min())/(frm.max()-frm.min())*(2**16-1)
+        frm = (frm - frm.min()) / (frm.max() - frm.min()) * (2 ** 16 - 1)
         frm = np.uint16(frm)
     img = Image.fromarray(frm)
     img.save(fp)
@@ -30,6 +30,7 @@ def _save_frame_to_file(i, data, folder, prefix, digits, data_format="tiff"):
 
 class _FrameByFrame(object):
     """A pickle-able wrapper for doing a function on all frames of a stack"""
+
     def __init__(self, do_in_loop, stack, *args, **kwargs):
         self.func = do_in_loop
         self.stack = stack
@@ -40,9 +41,9 @@ class _FrameByFrame(object):
         self.func(index, self.stack, *self.args, **self.kwargs)
 
 
-def export_frames(data, folder, prefix,
-                  digits, frames=None, multithreading=True,
-                  data_format="tiff"):
+def export_frames(
+    data, folder, prefix, digits, frames=None, multithreading=True, data_format="tiff"
+):
     """
     Export a 3D data array as individual images as required by matchseries
     """
@@ -55,14 +56,16 @@ def export_frames(data, folder, prefix,
     if multithreading:
         with cf.ThreadPoolExecutor() as pool:
             logging.debug("Starting in parallel mode to export")
-            pool.map(_FrameByFrame(_save_frame_to_file, data,
-                                   folder, prefix, digits, data_format),
-                                   toloop)
+            pool.map(
+                _FrameByFrame(
+                    _save_frame_to_file, data, folder, prefix, digits, data_format
+                ),
+                toloop,
+            )
     else:
         for i in toloop:
             logging.debug("Exporting frames sequentially")
-            _save_frame_to_file(i, data, folder, prefix, digits,
-                                data_format)
+            _save_frame_to_file(i, data, folder, prefix, digits, data_format)
 
 
 def _loadFromQ2bz(path):
@@ -71,19 +74,19 @@ def _loadFromQ2bz(path):
     """
     filename, file_extension = os.path.splitext(path)
     # bz2 compresses only a single file
-    if(file_extension == '.q2bz' or file_extension == '.bz2'):
+    if file_extension == ".q2bz" or file_extension == ".bz2":
         # read binary mode, r+b would be to also write
-        fid = bz2.open(path, 'rb')
+        fid = bz2.open(path, "rb")
     else:
-        fid = open(path, 'rb')  # read binary mode, r+b would be to also write
+        fid = open(path, "rb")  # read binary mode, r+b would be to also write
     # rstrip removes trailing zeros
     binaryline = fid.readline()  # will look like "b"P9\n""
-    line = binaryline.rstrip().decode('ascii')  # this will look like "P9"
-    if(line[0] != 'P'):
+    line = binaryline.rstrip().decode("ascii")  # this will look like "P9"
+    if line[0] != "P":
         raise ValueError("Invalid array header, doesn't start with 'P'")
-    if(line[1] == '9'):
+    if line[1] == "9":
         dtype = np.float64
-    elif(line[1] == '8'):
+    elif line[1] == "8":
         dtype = np.float32
     else:
         dtype = None
@@ -91,7 +94,8 @@ def _loadFromQ2bz(path):
     if not dtype:
         raise NotImplementedError(
             f"Invalid data type ({line[1]}), only float and "
-            "double are supported currently")
+            "double are supported currently"
+        )
     # Skip header = b'# This is a QuOcMesh file of type 9 (=RAW DOUBLE)
     # written 17:36 on Friday, 07 February 2020'
     _ = fid.readline().rstrip()
@@ -105,7 +109,7 @@ def _loadFromQ2bz(path):
     max = ""
     while True:
         c = fid.read(1)
-        if c == b'\n':
+        if c == b"\n":
             break
         max = max + str(int(c))
 
@@ -117,7 +121,7 @@ def _loadFromQ2bz(path):
 
 
 def overwrite_file(fname):
-    """ If file exists 'fname', ask for overwriting and return True or False,
+    """If file exists 'fname', ask for overwriting and return True or False,
     else return True.
     Parameters
     ----------
@@ -154,7 +158,7 @@ def overwrite_file(fname):
 
 
 def overwrite_dir(fname):
-    """ If dir exists 'fname', ask for overwriting and return True or False,
+    """If dir exists 'fname', ask for overwriting and return True or False,
     else return True.
     Parameters
     ----------

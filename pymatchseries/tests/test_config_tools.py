@@ -15,22 +15,19 @@ def test_write_config():
 
 
 def test_get_configuration():
-    c = ctools.get_configuration("test", "test", 2,
-                             1, [1, 2, 3], 
-                             preSmoothSigma=1)
+    c = ctools.get_configuration("test", "test", 2, 1, [1, 2, 3], preSmoothSigma=1)
     assert isinstance(c, ctools.config_dict)
 
 
 def test_create_config_file():
-    ctools.create_config_file("test.par", "test", "test", 2,
-                             1, [1, 2, 3], 
-                             preSmoothSigma=1)
+    ctools.create_config_file(
+        "test.par", "test", "test", 2, 1, [1, 2, 3], preSmoothSigma=1
+    )
     assert os.path.isfile("test.par")
     os.remove("test.par")
 
 
-class TestConfigDict():
-
+class TestConfigDict:
     def test_init(self):
         testdict = {"foo": "bar", "batman": 1}
         c = ctools.config_dict(testdict)

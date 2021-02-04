@@ -41,7 +41,7 @@ class config_dict(dict):
         if key not in self:
             raise KeyError(f"{key} not a valid option")
         if isinstance(value, bool):
-            value = value*1
+            value = value * 1
         if isinstance(value, list):
             stringlist = " ".join(map(str, value))
             value = f"{{ {stringlist} }}"
@@ -53,7 +53,7 @@ class config_dict(dict):
     def _get_stage_bznum(self):
         """For extracting the right defx and defy"""
         bznumber = str(self["stopLevel"]).zfill(2)
-        stage = int(self["numExtraStages"])+1
+        stage = int(self["numExtraStages"]) + 1
         return stage, bznumber
 
     def _get_frame_list(self):
@@ -71,7 +71,7 @@ class config_dict(dict):
         numframes = self["numTemplates"]
         sf = self["templateSkipNums"]
         numstep = self["templateNumStep"]
-        return range((numframes-len(sf)) // numstep)
+        return range((numframes - len(sf)) // numstep)
 
 
 def load_config(path=None):
@@ -86,15 +86,20 @@ def load_config(path=None):
 def write_config(options, path):
     config = ""
     for key, value in options.items():
-        config = config+str(key)+" "+str(value)+"\n"
+        config = config + str(key) + " " + str(value) + "\n"
     with open(path, "w") as f:
         f.write(config)
 
 
-def get_configuration(templateNamePattern, saveDirectory,
-                       precisionLevel, numTemplates,
-                       templateSkipNums=[],
-                       startLevelOffset=2, **kwargs):
+def get_configuration(
+    templateNamePattern,
+    saveDirectory,
+    precisionLevel,
+    numTemplates,
+    templateSkipNums=[],
+    startLevelOffset=2,
+    **kwargs,
+):
     try:
         config_dict = load_config(DEFAULT_CONFIG_PATH)
     except Exception as e:
@@ -108,11 +113,11 @@ def get_configuration(templateNamePattern, saveDirectory,
     config_dict["startLevel"] = precisionLevel - startLevelOffset
     config_dict["stopLevel"] = precisionLevel
     config_dict["precisionLevel"] = precisionLevel
-    config_dict["refineStartLevel"] = precisionLevel-1
+    config_dict["refineStartLevel"] = precisionLevel - 1
     config_dict["refineStopLevel"] = precisionLevel
     for key, value in kwargs.items():
         if isinstance(value, bool):
-            value = value*1
+            value = value * 1
         config_dict[key] = value
     return config_dict
 

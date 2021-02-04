@@ -32,7 +32,7 @@ DEFAULT_DATA_FILE = "data"
 
 def _get_counter(number_of_frames):
     """Calculate minimum # of digits to label frames"""
-    return int(np.log10(number_of_frames))+1
+    return int(np.log10(number_of_frames)) + 1
 
 
 def _is_valid_calculation(path):
@@ -40,14 +40,16 @@ def _is_valid_calculation(path):
     configfile = os.path.join(path, DEFAULT_CONFIG_FILE)
     inputfolder = os.path.join(path, DEFAULT_INPUT_FOLDER)
     outputfolder = os.path.join(path, DEFAULT_OUTPUT_FOLDER)
-    hdf5 = os.path.join(path, DEFAULT_DATA_FILE+".hdf5")
-    hspy = os.path.join(path, DEFAULT_DATA_FILE+".hspy")
+    hdf5 = os.path.join(path, DEFAULT_DATA_FILE + ".hdf5")
+    hspy = os.path.join(path, DEFAULT_DATA_FILE + ".hspy")
     hasmetadata = os.path.isfile(metafile)
     hasconfig = os.path.isfile(configfile)
     hasinputfolder = os.path.isdir(inputfolder)
     hasoutputfolder = os.path.isdir(outputfolder)
     hasdatafile = os.path.isfile(hdf5) or os.path.isfile(hspy)
-    condition = hasmetadata and hasconfig and hasinputfolder and hasoutputfolder and hasdatafile
+    condition = (
+        hasmetadata and hasconfig and hasinputfolder and hasoutputfolder and hasdatafile
+    )
     return condition
 
 
@@ -85,7 +87,9 @@ class MatchSeries:
             # data is none, we try to load
             self.__load_calculation(path)
         else:
-            raise ValueError("Either data and/or a path to a calculation must be provided")
+            raise ValueError(
+                "Either data and/or a path to a calculation must be provided"
+            )
 
     def __load_calculation(self, path):
         if not _is_valid_calculation(path):
@@ -113,7 +117,7 @@ class MatchSeries:
             self.__metadata["y_unit"] = "pixels"
             self.__metadata["input_type"] = "array"
             EXT = "hdf5"
-            if isinstance(data, np.ndarray): 
+            if isinstance(data, np.ndarray):
                 self.__metadata["lazy"] = False
             else:
                 self.__metadata["lazy"] = True
@@ -130,9 +134,11 @@ class MatchSeries:
             EXT = "hspy"
             self.__metadata["lazy"] = data._lazy
         else:
-            raise NotImplementedError(f"The input data type {type(data)} is not"
-                            "supported. Supported are "
-                            "numpy arrays, dask arrays, and hyperspy Signal2D objects.")
+            raise NotImplementedError(
+                f"The input data type {type(data)} is not"
+                "supported. Supported are "
+                "numpy arrays, dask arrays, and hyperspy Signal2D objects."
+            )
         if path is None:
             try:
                 # this will only work for some hspy datasets with the right metadata
@@ -140,13 +146,14 @@ class MatchSeries:
                 title = data.metadata.General.title
                 path = f"./{filename}_{title}/"
             except AttributeError:
-                path = "./"+str(uuid.uuid4()).replace("-", "")+"/"
+                path = "./" + str(uuid.uuid4()).replace("-", "") + "/"
 
         if self.image_data.ndim != 3 or self.image_data.shape[0] < 2:
-            raise ValueError("The data should be in the form of a 3D"
-                             " data cube (data.ndim = 3) and the first "
-                             "axis should contain more than than 1 element"
-                             )
+            raise ValueError(
+                "The data should be in the form of a 3D"
+                " data cube (data.ndim = 3) and the first "
+                "axis should contain more than than 1 element"
+            )
         self.path = os.path.abspath(path)
         # relative to paths
         self.__metadata["metadata_file_path"] = DEFAULT_META_FILE
@@ -161,8 +168,9 @@ class MatchSeries:
         self.__metadata["z_dim"] = self.image_data.shape[0]
         self.__metadata["digits"] = _get_counter(self.image_data.shape[0])
         pathpattern = os.path.join(
-                self.metadata["input_folder_path"],
-                f"frame_%0{self.metadata['digits']}d.tiff")
+            self.metadata["input_folder_path"],
+            f"frame_%0{self.metadata['digits']}d.tiff",
+        )
         # level = log2 of image size
         outlevel = np.log2(self.image_data.shape[-1])
         if outlevel != int(outlevel):
@@ -170,12 +178,12 @@ class MatchSeries:
         outlevel = int(outlevel)
         # create a default configuration
         self.configuration = ctools.get_configuration(
-                templateNamePattern=pathpattern,
-                saveDirectory=self.metadata["output_folder_path"],
-                precisionLevel=outlevel,
-                numTemplates=self.image_data.shape[0],
-                **kwargs,
-                )
+            templateNamePattern=pathpattern,
+            saveDirectory=self.metadata["output_folder_path"],
+            precisionLevel=outlevel,
+            numTemplates=self.image_data.shape[0],
+            **kwargs,
+        )
 
     @property
     def data(self):
@@ -256,11 +264,13 @@ class MatchSeries:
         os.makedirs(self.output_folder_path)
         # extracting the data and writing the relevant files
         logging.info("Exporting the frames")
-        ioutls.export_frames(self.image_data, 
-                             folder=self.input_folder_path,
-                             prefix=self.metadata["prefix"],
-                             digits=self.metadata["digits"],
-                             multithreading=False)
+        ioutls.export_frames(
+            self.image_data,
+            folder=self.input_folder_path,
+            prefix=self.metadata["prefix"],
+            digits=self.metadata["digits"],
+            multithreading=False,
+        )
         logging.info("Finished exporting the frames")
         self.configuration.save(self.config_file_path)
         self.__update_metadata_file()
@@ -271,8 +281,8 @@ class MatchSeries:
         cmd = ["matchSeries", f"{self.config_file_path}"]
         p = Popen(cmd, stdout=PIPE, stderr=STDOUT, cwd=self.path)
         while True:
-            output = p.stdout.read1(1024).decode('utf-8')
-            print(output, end='')
+            output = p.stdout.read1(1024).decode("utf-8")
+            print(output, end="")
             if p.poll() is not None:
                 break
         if p.returncode != 0:
@@ -298,7 +308,9 @@ class MatchSeries:
                     shape = (meta["x_dim"], meta["y_dim"])
                     images = len(conf._get_frame_list())
                     table.append([folder, completed, images, shape])
-        tabular = tabulate(table, headers=["Path", "Completed?", "# Images", "(width, height)"])
+        tabular = tabulate(
+            table, headers=["Path", "Completed?", "# Images", "(width, height)"]
+        )
         print(tabular)
 
     @staticmethod
@@ -317,8 +329,12 @@ class MatchSeries:
         stage, bznumber = self.configuration._get_stage_bznum()
         xr = "-r" if (frame_index != 0 and refined) else ""
         ax = 0 if axis == "x" else 1
-        path = str(Path(f"{result_folder}/stage{stage}/{frame_index}{xr}/"
-                        f"deformation_{bznumber}_{ax}.dat.bz2"))
+        path = str(
+            Path(
+                f"{result_folder}/stage{stage}/{frame_index}{xr}/"
+                f"deformation_{bznumber}_{ax}.dat.bz2"
+            )
+        )
         loader = delayed(ioutls._loadFromQ2bz)(path)
         shape = (self.metadata["y_dim"], self.metadata["x_dim"])
         deformation = da.from_delayed(loader, shape, dtype=float)
@@ -344,7 +360,7 @@ class MatchSeries:
         if not self.completed:
             raise Exception("The deformations have not yet been calculated")
         defx, defy = self.__load_deformations_data_lazy()
-        def_imag = defx + 1j*defy
+        def_imag = defx + 1j * defy
         axlist = self.__get_default_axlist(def_imag.shape[0])
         newds = hs.signals.ComplexSignal2D(def_imag, axes=axlist).as_lazy()
         if not lazy:
@@ -353,28 +369,28 @@ class MatchSeries:
 
     def __get_default_axlist(self, numframes):
         axlist = [
-                {
-                    "name": "frames",
-                    "size": numframes,
-                    "navigate": True,
-                },
-                {
-                    "name": self.metadata["y_name"],
-                    "size": self.metadata["y_dim"],
-                    "units": self.metadata["y_unit"],
-                    "scale": self.metadata["y_scale"],
-                    "offset": self.metadata["y_offset"],
-                    "navigate": False,
-                },
-                {
-                    "name": self.metadata["x_name"],
-                    "size": self.metadata["x_dim"],
-                    "units": self.metadata["x_unit"],
-                    "scale": self.metadata["x_scale"],
-                    "offset": self.metadata["x_offset"],
-                    "navigate": False,
-                },
-                ]
+            {
+                "name": "frames",
+                "size": numframes,
+                "navigate": True,
+            },
+            {
+                "name": self.metadata["y_name"],
+                "size": self.metadata["y_dim"],
+                "units": self.metadata["y_unit"],
+                "scale": self.metadata["y_scale"],
+                "offset": self.metadata["y_offset"],
+                "navigate": False,
+            },
+            {
+                "name": self.metadata["x_name"],
+                "size": self.metadata["x_dim"],
+                "units": self.metadata["x_unit"],
+                "scale": self.metadata["x_scale"],
+                "offset": self.metadata["x_offset"],
+                "navigate": False,
+            },
+        ]
         return axlist
 
     def __is_valid_data(self, data):
@@ -384,7 +400,11 @@ class MatchSeries:
         xdim = self.metadata["x_dim"]
         ydim = self.metadata["y_dim"]
         raw = _get_raw_data(data)
-        return (raw.shape[-2]==ydim) and (raw.shape[-1]==xdim) and (raw.shape[0]>=maxframes)
+        return (
+            (raw.shape[-2] == ydim)
+            and (raw.shape[-1] == xdim)
+            and (raw.shape[0] >= maxframes)
+        )
 
     def get_deformed_images(self, data=None, **kwargs):
         """
@@ -420,31 +440,37 @@ class MatchSeries:
             axlist = [axes["axis-0"], axes["axis-1"], axes["axis-2"]]
             if data._lazy:
                 newds = hs.signals.Signal2D(
-                        defdt, axes=axlist,
-                        metadata=data.metadata.as_dictionary(),
-                        original_metadata=data.original_metadata.as_dictionary())
+                    defdt,
+                    axes=axlist,
+                    metadata=data.metadata.as_dictionary(),
+                    original_metadata=data.original_metadata.as_dictionary(),
+                )
                 return newds.as_lazy()
             else:
                 with ProgressBar():
                     defdt = defdt.compute(**kwargs)
                 newds = hs.signals.Signal2D(
-                        defdt, axes=axlist,
-                        metadata=data.metadata.as_dictionary(),
-                        original_metadata=data.original_metadata.as_dictionary())
+                    defdt,
+                    axes=axlist,
+                    metadata=data.metadata.as_dictionary(),
+                    original_metadata=data.original_metadata.as_dictionary(),
+                )
                 return newds
         else:
-            raise TypeError("Data must be numpy or dask array "
-                            "or a hyperspy 2D signal")
+            raise TypeError(
+                "Data must be numpy or dask array " "or a hyperspy 2D signal"
+            )
 
     def __is_valid_specmap(self, specmap):
         frames = self.configuration._get_frame_list()
         maxframes = np.max(frames)
         specmap = _get_raw_data(specmap)
-        condition = (specmap.ndim == 4 and
-                     specmap.shape[2] == self.metadata["x_dim"] and
-                     specmap.shape[1] == self.metadata["y_dim"] and
-                     specmap.shape[0] > maxframes
-                     )
+        condition = (
+            specmap.ndim == 4
+            and specmap.shape[2] == self.metadata["x_dim"]
+            and specmap.shape[1] == self.metadata["y_dim"]
+            and specmap.shape[0] > maxframes
+        )
         return condition
 
     def apply_deformations_to_spectra(self, specmap, sum_frames=True, **kwargs):
@@ -467,8 +493,10 @@ class MatchSeries:
             The deformed spectral data of the same type as the input.
         """
         if not self.__is_valid_specmap(specmap):
-            raise TypeError("Must supply a correctly sized 4D spectrum. "
-                            "Make sure to import with flag sum_frames=False.")
+            raise TypeError(
+                "Must supply a correctly sized 4D spectrum. "
+                "Make sure to import with flag sum_frames=False."
+            )
         raw = _get_raw_data(specmap)
         chunks = ("auto", -1, -1, "auto")
         if isinstance(raw, np.ndarray):
@@ -480,8 +508,8 @@ class MatchSeries:
         frames = self.configuration._get_frame_list()
         dt = dt[frames]
         defx, defy = self.__load_deformations_data_lazy()
-        defx = da.stack([defx]*dt.shape[-1], axis=-1)
-        defy = da.stack([defy]*dt.shape[-1], axis=-1)
+        defx = da.stack([defx] * dt.shape[-1], axis=-1)
+        defy = da.stack([defy] * dt.shape[-1], axis=-1)
         defx = defx.rechunk(dt.chunks)
         defy = defy.rechunk(dt.chunks)
         logging.info(f"data: {dt.shape}, {dt.chunksize}")
@@ -501,21 +529,26 @@ class MatchSeries:
             axlist = [axes["axis-0"], axes["axis-1"], axes["axis-2"]]
             if specmap._lazy:
                 newds = hs.signals.EDSTEMSpectrum(
-                        defdt, axes=axlist,
-                        metadata=specmap.metadata.as_dictionary(),
-                        original_metadata=specmap.original_metadata.as_dictionary())
+                    defdt,
+                    axes=axlist,
+                    metadata=specmap.metadata.as_dictionary(),
+                    original_metadata=specmap.original_metadata.as_dictionary(),
+                )
                 return newds.as_lazy()
             else:
                 with ProgressBar():
                     defdt = defdt.compute(**kwargs)
                 newds = hs.signals.EDSTEMSpectrum(
-                        defdt, axes=axlist,
-                        metadata=specmap.metadata.as_dictionary(),
-                        original_metadata=specmap.original_metadata.as_dictionary())
+                    defdt,
+                    axes=axlist,
+                    metadata=specmap.metadata.as_dictionary(),
+                    original_metadata=specmap.original_metadata.as_dictionary(),
+                )
                 return newds
         else:
-            raise TypeError("Data must be numpy or dask array "
-                            "or a hyperspy 2D signal")
+            raise TypeError(
+                "Data must be numpy or dask array " "or a hyperspy 2D signal"
+            )
 
 
 def deform_image(image, defX, defY):
@@ -537,10 +570,8 @@ def deform_image(image, defX, defY):
         2D array representing the deformed image
     """
     h, w = image.shape[-2:]
-    coords = \
-        np.mgrid[0:h, 0:w] + np.multiply([defY, defX], (np.max([h, w])-1))
-    return ndimage.map_coordinates(image, coords, order=0,
-                                   mode="constant")
+    coords = np.mgrid[0:h, 0:w] + np.multiply([defY, defX], (np.max([h, w]) - 1))
+    return ndimage.map_coordinates(image, coords, order=0, mode="constant")
 
 
 def _map_deform_image(image_chunk, defX_chunk, defY_chunk):
@@ -549,9 +580,7 @@ def _map_deform_image(image_chunk, defX_chunk, defY_chunk):
     """
     defimg = np.empty(image_chunk.shape, dtype=float)
     for i in range(defimg.shape[0]):
-        defimg[i] = deform_image(image_chunk[i],
-                                 defX_chunk[i],
-                                 defY_chunk[i])
+        defimg[i] = deform_image(image_chunk[i], defX_chunk[i], defY_chunk[i])
     return defimg
 
 
@@ -562,8 +591,9 @@ def _map_deform_spectra(spectra_chunk, defX_chunk, defY_chunk):
     def_spec = np.empty(spectra_chunk.shape, dtype=float)
     for i, j in np.ndindex(spectra_chunk.shape[0], spectra_chunk.shape[-1]):
         image = spectra_chunk[i, :, :, j]
-        def_spec[i, :, :, j] = deform_image(image,
-                                            defX_chunk[i, :, :, j],
-                                            defY_chunk[i, :, :, j],
-                                            )
+        def_spec[i, :, :, j] = deform_image(
+            image,
+            defX_chunk[i, :, :, j],
+            defY_chunk[i, :, :, j],
+        )
     return def_spec
