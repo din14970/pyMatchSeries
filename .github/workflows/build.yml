@@ -29,7 +29,7 @@ jobs:
       - name: Display versions of Python and Pip
         run: python -V; pip -V
       - name: Setup conda
-        uses: s-weigans/setup-conda@v1
+        uses: s-weigand/setup-conda@v1
         with:
           update-conda: true
           conda-channels: conda-forge
