@@ -31,8 +31,8 @@ jobs:
       - name: Setup conda
         uses: s-weigans/setup-conda@v1
         with:
-            update-conda:true
-            conda-channels: conda-forge
+            - update-conda:true
+            - conda-channels: conda-forge
       - name: Check conda version
         run: conda --version
       - name: Install depedencies and package

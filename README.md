@@ -1,5 +1,5 @@
 <p align="center">
-<a href="https://github.com/din14970/pyMatchSeries/actions"><img alt="Actions Status" src="https://github.com/din14970/pyMatchSeries/workflows/Test/badge.svg"></a>
+<a href="https://github.com/din14970/pyMatchSeries/actions"><img alt="Actions Status" src="https://github.com/din14970/pyMatchSeries/workflows/build/badge.svg"></a>
 <a href="https://coveralls.io/github/din14970/pyMatchSeries?branch=master"><img alt="Coverage Status" src="https://coveralls.io/repos/github/din14970/pyMatchSeries/badge.svg?branch=master"></a>
 <a href="https://pypi.org/project/pyMatchSeries/"><img alt="PyPI" src="https://img.shields.io/pypi/v/pyMatchSeries.svg?style=flat"></a>
 <a href="https://github.com/psf/black"><img alt="Code style: black" src="https://img.shields.io/badge/code%20style-black-000000.svg"></a>
