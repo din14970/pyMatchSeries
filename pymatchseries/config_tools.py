@@ -180,5 +180,5 @@ def create_config_file(filename, *args, **kwargs):
     saveNamedDeformedDMXTemplatesAsDMX : bool, optional
     saveRefAndTempl : bool, optional
     """
-    get_configuration(*args, **kwargs)
+    config_dict = get_configuration(*args, **kwargs)
     config_dict.save(filename)
