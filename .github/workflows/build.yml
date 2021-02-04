@@ -37,7 +37,7 @@ jobs:
         run: conda --version
       - name: Install depedencies and package
         shell: bash
-        run: pip install -U -e .; conda install match-series
+        run: pip install -U -e .'[tests]'; conda install match-series
       - name: Run tests
         run: pytest --cov=pymatchseries --pyargs pymatchseries
       - name: Generate line coverage
