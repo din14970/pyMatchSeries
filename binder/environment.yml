@@ -3,7 +3,6 @@ channels:
   - conda-forge
 dependencies:
   - hyperspy
-  - temmeta
   - pywget
   - match-series
   - pip:
