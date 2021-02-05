@@ -54,8 +54,7 @@ def test_setfail():
 
 
 def test_getitem():
-    testdict = {"foo": "bar", "batman": "1", "superman": "1.1",
-                "joker": "{ 1 3 135 }"}
+    testdict = {"foo": "bar", "batman": "1", "superman": "1.1", "joker": "{ 1 3 135 }"}
     c = ctools.config_dict(testdict)
     assert c["foo"] == "bar"
     assert c["batman"] == 1
@@ -64,8 +63,7 @@ def test_getitem():
 
 
 def test_setitem():
-    testdict = {"foo": "bar", "batman": "1", "superman": "1.1",
-                "joker": "{ 1 3 135 }"}
+    testdict = {"foo": "bar", "batman": "1", "superman": "1.1", "joker": "{ 1 3 135 }"}
     c = ctools.config_dict(testdict)
     c["foo"] = "bla"
     c["batman"] = True
@@ -74,8 +72,7 @@ def test_setitem():
 
 @pytest.mark.xfail(raises=KeyError)
 def test_setitemfail():
-    testdict = {"foo": "bar", "batman": "1", "superman": "1.1",
-                "joker": "{ 1 3 135 }"}
+    testdict = {"foo": "bar", "batman": "1", "superman": "1.1", "joker": "{ 1 3 135 }"}
     c = ctools.config_dict(testdict)
     c["noexist"] = 1
 

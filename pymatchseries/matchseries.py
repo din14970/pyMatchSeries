@@ -122,14 +122,22 @@ class MatchSeries:
             else:
                 self.__metadata["lazy"] = True
         elif isinstance(data, hs.signals.Signal2D):
-            self.__metadata["x_name"] = str(data.axes_manager[-2].name).replace("<","").replace(">","")
+            self.__metadata["x_name"] = (
+                str(data.axes_manager[-2].name).replace("<", "").replace(">", "")
+            )
             self.__metadata["x_scale"] = data.axes_manager[-2].scale
             self.__metadata["x_offset"] = data.axes_manager[-2].offset
-            self.__metadata["x_unit"] = str(data.axes_manager[-2].units).replace("<","").replace(">","")
-            self.__metadata["y_name"] = str(data.axes_manager[-1].name).replace("<","").replace(">","")
+            self.__metadata["x_unit"] = (
+                str(data.axes_manager[-2].units).replace("<", "").replace(">", "")
+            )
+            self.__metadata["y_name"] = (
+                str(data.axes_manager[-1].name).replace("<", "").replace(">", "")
+            )
             self.__metadata["y_scale"] = data.axes_manager[-1].scale
             self.__metadata["y_offset"] = data.axes_manager[-1].offset
-            self.__metadata["y_unit"] = str(data.axes_manager[-1].units).replace("<","").replace(">","")
+            self.__metadata["y_unit"] = (
+                str(data.axes_manager[-1].units).replace("<", "").replace(">", "")
+            )
             self.__metadata["input_type"] = "hyperspy"
             EXT = "hspy"
             self.__metadata["lazy"] = data._lazy

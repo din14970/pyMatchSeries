@@ -53,12 +53,14 @@ def test_match_series_sizefail():
 
 
 @pytest.mark.parametrize(
-        "data, f",
-        [(imageds, 1),
-         (imageds_da, 2),
-         (hsimage, 3),
-         (hsimage_da, 4),
-         ])
+    "data, f",
+    [
+        (imageds, 1),
+        (imageds_da, 2),
+        (hsimage, 3),
+        (hsimage_da, 4),
+    ],
+)
 def test_match_series_save_load(data, f):
     mso = ms.MatchSeries(data, path=f"test{f}")
     mso._MatchSeries__prepare_calculation()
