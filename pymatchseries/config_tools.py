@@ -68,10 +68,7 @@ class config_dict(dict):
 
     def _get_frame_index_iterator(self):
         """Get a range to loop over all the indices of the output"""
-        numframes = self["numTemplates"]
-        sf = self["templateSkipNums"]
-        numstep = self["templateNumStep"]
-        return range((numframes - len(sf)) // numstep)
+        return range(len(self._get_frame_list()))
 
 
 def load_config(path=None):

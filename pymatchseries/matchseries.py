@@ -122,14 +122,14 @@ class MatchSeries:
             else:
                 self.__metadata["lazy"] = True
         elif isinstance(data, hs.signals.Signal2D):
-            self.__metadata["x_name"] = data.axes_manager[-2].name
+            self.__metadata["x_name"] = str(data.axes_manager[-2].name).replace("<","").replace(">","")
             self.__metadata["x_scale"] = data.axes_manager[-2].scale
             self.__metadata["x_offset"] = data.axes_manager[-2].offset
-            self.__metadata["x_unit"] = data.axes_manager[-2].units
-            self.__metadata["y_name"] = data.axes_manager[-1].name
+            self.__metadata["x_unit"] = str(data.axes_manager[-2].units).replace("<","").replace(">","")
+            self.__metadata["y_name"] = str(data.axes_manager[-1].name).replace("<","").replace(">","")
             self.__metadata["y_scale"] = data.axes_manager[-1].scale
             self.__metadata["y_offset"] = data.axes_manager[-1].offset
-            self.__metadata["y_unit"] = data.axes_manager[-1].units
+            self.__metadata["y_unit"] = str(data.axes_manager[-1].units).replace("<","").replace(">","")
             self.__metadata["input_type"] = "hyperspy"
             EXT = "hspy"
             self.__metadata["lazy"] = data._lazy
@@ -142,7 +142,8 @@ class MatchSeries:
         if path is None:
             try:
                 # this will only work for some hspy datasets with the right metadata
-                filename, _ = os.path.splitext(data.metadata.General.original_filename)
+                p, fn = os.path.split(data.metadata.General.original_filename)
+                filename, _ = os.path.splitext(fn)
                 title = data.metadata.General.title
                 path = f"./{filename}_{title}/"
             except AttributeError:
@@ -253,7 +254,7 @@ class MatchSeries:
 
     def __prepare_calculation(self):
         if os.path.isdir(self.path):
-            warnings.warn("The calculation {self.metadata['path']} already exists!")
+            warnings.warn(f"The calculation {self.path} already exists!")
             if ioutls.overwrite_dir(self.path):
                 shutil.rmtree(self.path)
             else:
@@ -395,7 +396,7 @@ class MatchSeries:
 
     def __is_valid_data(self, data):
         """Check whether data is the same shape as the calculation"""
-        frames = self.configuration.__get_frame_list()
+        frames = self.configuration._get_frame_list()
         maxframes = np.max(frames)
         xdim = self.metadata["x_dim"]
         ydim = self.metadata["y_dim"]
