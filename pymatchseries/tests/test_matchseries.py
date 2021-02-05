@@ -1,5 +1,6 @@
 from pymatchseries import matchseries as ms
 import os
+import gc
 import shutil
 import pytest
 from hyperspy.signals import Signal2D, EDSTEMSpectrum
@@ -69,7 +70,11 @@ def test_match_series_save_load(data, f):
     assert mso.metadata == msl.metadata
     assert mso.configuration == msl.configuration
     assert type(mso.data) == type(msl.data)
-    shutil.rmtree(mso.path)
+    path = mso.path
+    del mso
+    del msl
+    gc.collect()
+    shutil.rmtree(path)
 
 
 @pytest.fixture(scope="module")
