@@ -60,14 +60,10 @@ def test_match_series_sizefail():
          (hsimage_da, 4),
          ])
 def test_match_series_save_load(data, f):
-    mso = ms.MatchSeries(data)
+    mso = ms.MatchSeries(data, path=f"test{f}")
     mso._MatchSeries__prepare_calculation()
     mso.save_data(mso.input_data_file)
-    print(mso.path)
-    print(mso.metadata)
     msl = ms.MatchSeries.load(mso.path)
-    print(msl.path)
-    print(msl.metadata)
     assert mso.metadata == msl.metadata
     assert mso.configuration == msl.configuration
     assert type(mso.data) == type(msl.data)
