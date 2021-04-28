@@ -26,7 +26,7 @@ def _eval_im_at_coords(im, x, y, default):
     wx2 = x - j
     wy1 = i + 1. - y
     wy2 = y - i
-    result = np.zeros(x.shape, dtype=np.float32)
+    result = np.empty(x.shape, dtype=np.float32)
     for c in range(result.shape[0]):
         xx1 = j[c]
         yy1 = i[c]
