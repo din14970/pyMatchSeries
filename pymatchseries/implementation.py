@@ -340,9 +340,9 @@ def energy(phi_x, phi_y, im1, im2, node_weights, node_weights_dx, node_weights_d
 @njit()
 def _integrate_pd_over_cells(quadeval, quad_weights,
                              dphi_dx, dphi_dy,
-                             qv1, qv2, qv3, qv4,
-                             dqv1x, dqv2x, dqv3x, dqv4x,
-                             dqv1y, dqv2y, dqv3y, dqv4y,
+                             qv,
+                             dqvx,
+                             dqvy,
                             ):
     """
     Evaluate the partial derivative of E with respect to all phi_k by summing over the cells
@@ -394,33 +394,33 @@ def _integrate_pd_over_cells(quadeval, quad_weights,
             # add the contributions from the 4 neighboring cells around a node
             if 0 <= cx0 < quadeval.shape[2] and 0 <= cy0 < quadeval.shape[1]:
                 for c in range(2):
-                    partial_deriv[c, i, j] += np.dot(quadeval[c, cy0, cx0]*qv1 +
-                                                  dphi_dx[c, cy0, cx0]*dqv1x +
-                                                  dphi_dy[c, cy0, cx0]*dqv1y
+                    partial_deriv[c, i, j] += np.dot(quadeval[c, cy0, cx0]*qv[0] +
+                                                  dphi_dx[c, cy0, cx0]*dqvx[0] +
+                                                  dphi_dy[c, cy0, cx0]*dqvy[0]
                                                   , quad_weights)
             if 0 <= cx1 < quadeval.shape[2] and 0 <= cy0 < quadeval.shape[1]:
                 for c in range(2):
-                    partial_deriv[c, i, j] += np.dot(quadeval[c, cy0, cx1]*qv2 +
-                                                  dphi_dx[c, cy0, cx1]*dqv2x +
-                                                  dphi_dy[c, cy0, cx1]*dqv2y
+                    partial_deriv[c, i, j] += np.dot(quadeval[c, cy0, cx1]*qv[1] +
+                                                  dphi_dx[c, cy0, cx1]*dqvx[1] +
+                                                  dphi_dy[c, cy0, cx1]*dqvy[1]
                                                   , quad_weights)
             if 0 <= cx0 < quadeval.shape[2] and 0 <= cy1 < quadeval.shape[1]:
                 for c in range(2):
-                    partial_deriv[c, i, j] += np.dot(quadeval[c, cy1, cx0]*qv3 +
-                                                  dphi_dx[c, cy1, cx0]*dqv3x +
-                                                  dphi_dy[c, cy1, cx0]*dqv3y
+                    partial_deriv[c, i, j] += np.dot(quadeval[c, cy1, cx0]*qv[2] +
+                                                  dphi_dx[c, cy1, cx0]*dqvx[2] +
+                                                  dphi_dy[c, cy1, cx0]*dqvy[2]
                                                   , quad_weights)
             if 0 <= cx1 < quadeval.shape[2] and 0 <= cy1 < quadeval.shape[1]:
                 for c in range(2):
-                    partial_deriv[c, i, j] += np.dot(quadeval[c, cy1, cx1]*qv4 +
-                                                  dphi_dx[c, cy1, cx1]*dqv4x +
-                                                  dphi_dy[c, cy1, cx1]*dqv4y
+                    partial_deriv[c, i, j] += np.dot(quadeval[c, cy1, cx1]*qv[3] +
+                                                  dphi_dx[c, cy1, cx1]*dqvx[3] +
+                                                  dphi_dy[c, cy1, cx1]*dqvy[3]
                                                   , quad_weights)
     return partial_deriv
     
 
 def gradient(phi_x, phi_y, im1, im2, node_weights, node_weights_dx, node_weights_dy, quad_weights,
-             qv1, qv2, qv3, qv4, dqv1x, dqv2x, dqv3x, dqv4x, dqv1y, dqv2y, dqv3y, dqv4y,
+             qv, dqvx, dqvy,
              L,
             ):
     # Evaluates d/dphi_k (E)
@@ -451,9 +451,9 @@ def gradient(phi_x, phi_y, im1, im2, node_weights, node_weights_dx, node_weights
     phi_dy = (L*np.stack((phi_y_dy, phi_x_dy))).astype(np.float32)
     # 3) integrate over all the cells
     partial = 2.*_integrate_pd_over_cells(prod, quad_weights, phi_dx, phi_dy,
-                                         qv1, qv2, qv3, qv4,
-                                         dqv1x, dqv2x, dqv3x, dqv4x,
-                                         dqv1y, dqv2y, dqv3y, dqv4y,
+                                         qv,
+                                         dqvx,
+                                         dqvy,
                                         )
     return partial
 
@@ -479,14 +479,10 @@ def main():
     weight3 = _get_gauss_quad_weights_3()
     # -------------------------------------------------------------
     # Evaluation of basis function and derivative of basis function at quadrature points in 4 cells around a node
-    qv1 = _get_qv1(q_points)
-    qv2 = _get_qv2(q_points)
-    qv3 = _get_qv3(q_points)
-    qv4 = _get_qv4(q_points)
-    dqv1x, dqv1y = _get_dqv1(q_points)
-    dqv2x, dqv2y = _get_dqv2(q_points)
-    dqv3x, dqv3y = _get_dqv3(q_points)
-    dqv4x, dqv4y = _get_dqv4(q_points)
+    qv = np.array([_get_qv1(q_points), _get_qv2(q_points), _get_qv3(q_points), _get_qv4(q_points)])
+    dqv = np.array([_get_dqv1(q_points), _get_dqv2(q_points), _get_dqv3(q_points), _get_dqv4(q_points)])
+    dqvx = dqv[:, 0, :]
+    dqvy = dqv[:, 1, :]
     # -------------------------------------------------------------
     # initialize deformation field as identity
     x = np.arange(im1.shape[1], dtype=np.float32)
@@ -502,7 +498,7 @@ def main():
 
     def DE(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
-        return gradient(phi[1, ...], phi[0, ...], im1, im2, quad3, quaddx3, quaddy3, weight3, qv1, qv2, qv3, qv4, dqv1x, dqv2x, dqv3x, dqv4x, dqv1y, dqv2y, dqv3y, dqv4y, L).ravel()
+        return gradient(phi[1, ...], phi[0, ...], im1, im2, quad3, quaddx3, quaddy3, weight3, qv, dqvx, dqvy, L).ravel()
 
     phi = np.stack([phiy, phix])
 
