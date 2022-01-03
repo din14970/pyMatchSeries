@@ -454,12 +454,12 @@ def gradient(
     phi_x_dy = (_value_at_quad_points(phi_x, node_weights_dy)).reshape(cell_shape)
     phi_y_dy = (_value_at_quad_points(phi_y, node_weights_dy) - 1).reshape(cell_shape)
     # 3) integrate over all the cells
-    partial_y = _integrate_pd_over_cells_single(2*prody, quad_weights, qv)
-    partial_x = _integrate_pd_over_cells_single(2*prodx, quad_weights, qv)
-    partial_y += _integrate_pd_over_cells_single(2*L*phi_y_dx, quad_weights, dqvx)
-    partial_y += _integrate_pd_over_cells_single(2*L*(phi_y_dy), quad_weights, dqvy)
-    partial_x += _integrate_pd_over_cells_single(2*L*(phi_x_dx), quad_weights, dqvx)
-    partial_x += _integrate_pd_over_cells_single(2*L*phi_x_dy, quad_weights, dqvy)
+    partial_y = _integrate_pd_over_cells_single(2 * prody, quad_weights, qv)
+    partial_x = _integrate_pd_over_cells_single(2 * prodx, quad_weights, qv)
+    partial_y += _integrate_pd_over_cells_single(2 * L * phi_y_dx, quad_weights, dqvx)
+    partial_y += _integrate_pd_over_cells_single(2 * L * (phi_y_dy), quad_weights, dqvy)
+    partial_x += _integrate_pd_over_cells_single(2 * L * (phi_x_dx), quad_weights, dqvx)
+    partial_x += _integrate_pd_over_cells_single(2 * L * phi_x_dy, quad_weights, dqvy)
 
     return np.stack((partial_y, partial_x))
 
