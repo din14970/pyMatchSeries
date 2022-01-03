@@ -401,6 +401,31 @@ def _integrate_pd_over_cells(
     return partial_deriv
 
 
+@njit()
+def _integrate_pd_over_cells_single(quadeval, quad_weights, qv):
+    partial_deriv = np.zeros((quadeval.shape[0] + 1, quadeval.shape[1] + 1), dtype=np.float32)
+
+    for i in prange(quadeval.shape[0] + 1):
+        for j in range(quadeval.shape[1] + 1):
+            cx0 = j - 1
+            cx1 = j
+            cy0 = i - 1
+            cy1 = i
+
+            if 0 <= cx0 < quadeval.shape[1] and 0 <= cy0 < quadeval.shape[0]:
+                partial_deriv[i, j] += np.dot(quadeval[cy0, cx0] * qv[0], quad_weights)
+
+            if 0 <= cx1 < quadeval.shape[1] and 0 <= cy0 < quadeval.shape[0]:
+                partial_deriv[i, j] += np.dot(quadeval[cy0, cx1] * qv[1], quad_weights)
+
+            if 0 <= cx0 < quadeval.shape[1] and 0 <= cy1 < quadeval.shape[0]:
+                partial_deriv[i, j] += np.dot(quadeval[cy1, cx0] * qv[2], quad_weights)
+            if 0 <= cx1 < quadeval.shape[1] and 0 <= cy1 < quadeval.shape[0]:
+                partial_deriv[i, j] += np.dot(quadeval[cy1, cx1] * qv[3], quad_weights)
+
+    return partial_deriv
+
+
 def gradient(
     phi_x,
     phi_y,
@@ -432,26 +457,21 @@ def gradient(
     cell_shape = (im1.shape[0] - 1, im1.shape[1] - 1, node_weights.shape[1])
     prodx = (two_f_min_g * dfdx).reshape(cell_shape)
     prody = (two_f_min_g * dfdy).reshape(cell_shape)
-    prod = np.stack((prody, prodx))
     # 2) regularization term is 2*(dphi_x/dx - 1)* d(basis_function_k)/d_x + 2*(dphi_x/dy)* d(basis_func_k)/dy
     # and                       2*(dphi_y/dx)* d(basis_func_k)/dx + 2*(dphi_y/dy - 1)* d(basis_function_k)/dy
     phi_x_dx = (_value_at_quad_points(phi_x, node_weights_dx) - 1).reshape(cell_shape)
     phi_y_dx = (_value_at_quad_points(phi_y, node_weights_dx)).reshape(cell_shape)
     phi_x_dy = (_value_at_quad_points(phi_x, node_weights_dy)).reshape(cell_shape)
     phi_y_dy = (_value_at_quad_points(phi_y, node_weights_dy) - 1).reshape(cell_shape)
-    phi_dx = (L * np.stack((phi_y_dx, phi_x_dx))).astype(np.float32)
-    phi_dy = (L * np.stack((phi_y_dy, phi_x_dy))).astype(np.float32)
     # 3) integrate over all the cells
-    partial = 2.0 * _integrate_pd_over_cells(
-        prod,
-        quad_weights,
-        phi_dx,
-        phi_dy,
-        qv,
-        dqvx,
-        dqvy,
-    )
-    return partial
+    partial_y = _integrate_pd_over_cells_single(2*prody, quad_weights, qv)
+    partial_x = _integrate_pd_over_cells_single(2*prodx, quad_weights, qv)
+    partial_y += _integrate_pd_over_cells_single(2*L*phi_y_dx, quad_weights, dqvx)
+    partial_y += _integrate_pd_over_cells_single(2*L*(phi_y_dy), quad_weights, dqvy)
+    partial_x += _integrate_pd_over_cells_single(2*L*(phi_x_dx), quad_weights, dqvx)
+    partial_x += _integrate_pd_over_cells_single(2*L*phi_x_dy, quad_weights, dqvy)
+
+    return np.stack((partial_y, partial_x))
 
 
 def main():
