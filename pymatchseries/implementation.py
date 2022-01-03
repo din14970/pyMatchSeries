@@ -314,15 +314,15 @@ def energy(phi_x, phi_y, im1, im2, node_weights, node_weights_dx, node_weights_d
         Regularization constant
     """
     # we evaluate integral_over_domain (f(phi(x)) - g(x))**2 where x are all quad points (x_i, y_i)
-    # first we evaluaate (phi_x, phy_y) and g(x) at all quad points
+    # first we evaluate (phi_x, phy_y) and g(x) at all quad points
     f_x = _value_at_quad_points(phi_x, node_weights).ravel()
     f_y = _value_at_quad_points(phi_y, node_weights).ravel()
     g = _value_at_quad_points(im2, node_weights)
     # then we evaluate f(phi_x, phi_y)
     f = _eval_im_at_coords(im1, f_x, f_y, np.mean(im1)).reshape(-1, node_weights.shape[1])
-    # we evaluate integral with gaussian quadrature = multiply integrand by weights of quad points and sum
+    # we evaluate integral with Gaussian quadrature = multiply integrand by weights of quad points and sum
     integrated = np.dot(np.sum((f-g)**2, axis=0), quad_weights)
-    # regularisation term = integral_over_domain of
+    # regularization term = integral_over_domain of
     # (dphi_x/dx - 1)**2 + (dphi_x/dy)**2 + (dphi_y/dx)**2 + (dphi_y/dy-1)**2
     # The same formula can be used but plugging in different node weights accounting for differentiation
     phi_x_dx = _value_at_quad_points(phi_x, node_weights_dx)
