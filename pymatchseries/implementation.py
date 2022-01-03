@@ -380,7 +380,7 @@ def _integrate_pd_over_cells(quadeval, quad_weights,
     * 4: bottom right from node
     """
     # we have an extra row and column of nodes to evaluate partial derivative at
-    partial_deriv = np.empty((2, quadeval.shape[1]+1, quadeval.shape[2]+1), dtype=np.float32)
+    partial_deriv = np.zeros((2, quadeval.shape[1]+1, quadeval.shape[2]+1), dtype=np.float32)
     # we loop over the nodes but must translate this into cell coordinates
     for i in prange(quadeval.shape[1]+1):
         for j in range(quadeval.shape[2]+1):
