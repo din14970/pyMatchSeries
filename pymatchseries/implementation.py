@@ -405,23 +405,13 @@ def _integrate_pd_over_cells(
 def _integrate_pd_over_cells_single(quadeval, quad_weights, qv):
     partial_deriv = np.zeros((quadeval.shape[0] + 1, quadeval.shape[1] + 1), dtype=np.float32)
 
-    for i in prange(quadeval.shape[0] + 1):
-        for j in range(quadeval.shape[1] + 1):
-            cx0 = j - 1
-            cx1 = j
-            cy0 = i - 1
-            cy1 = i
-
-            if 0 <= cx0 < quadeval.shape[1] and 0 <= cy0 < quadeval.shape[0]:
-                partial_deriv[i, j] += np.dot(quadeval[cy0, cx0] * qv[0], quad_weights)
-
-            if 0 <= cx1 < quadeval.shape[1] and 0 <= cy0 < quadeval.shape[0]:
-                partial_deriv[i, j] += np.dot(quadeval[cy0, cx1] * qv[1], quad_weights)
-
-            if 0 <= cx0 < quadeval.shape[1] and 0 <= cy1 < quadeval.shape[0]:
-                partial_deriv[i, j] += np.dot(quadeval[cy1, cx0] * qv[2], quad_weights)
-            if 0 <= cx1 < quadeval.shape[1] and 0 <= cy1 < quadeval.shape[0]:
-                partial_deriv[i, j] += np.dot(quadeval[cy1, cx1] * qv[3], quad_weights)
+    # Iterate over all cells
+    for i in prange(quadeval.shape[0]):
+        for j in range(quadeval.shape[1]):
+            partial_deriv[i + 1, j + 1] += np.dot(quadeval[i, j] * qv[0], quad_weights)
+            partial_deriv[i + 1, j] += np.dot(quadeval[i, j] * qv[1], quad_weights)
+            partial_deriv[i, j + 1] += np.dot(quadeval[i, j] * qv[2], quad_weights)
+            partial_deriv[i, j] += np.dot(quadeval[i, j] * qv[3], quad_weights)
 
     return partial_deriv
 
