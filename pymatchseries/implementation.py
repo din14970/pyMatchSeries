@@ -1,6 +1,9 @@
 import numpy as np
-from numba import njit
-
+from numba import njit, prange
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from scipy.ndimage import map_coordinates, zoom
+from scipy.optimize import minimize
 
 @njit
 def _eval_im_at_coords(im, x, y, default):
@@ -453,3 +456,69 @@ def gradient(phi_x, phi_y, im1, im2, node_weights, node_weights_dx, node_weights
                                          dqv1y, dqv2y, dqv3y, dqv4y,
                                         )
     return partial
+
+
+def main():
+    # im1 and im2 are two images (float32 dtype) of the same size assumed to be available
+    im1 = np.zeros((64, 64), dtype=np.float32)
+    im2 = np.zeros((64, 64), dtype=np.float32)
+
+    im1[10:30, 15:45] = 1
+    im2[25:45, 25:55] = 1
+
+    # Downscale the images to have a very coarse toy registration problem.
+    im1 = zoom(im1, 0.125)
+    im2 = zoom(im2, 0.125)
+
+    # -------------------------------------------------------------
+    # Quadrature point values that are used throughout to evaluate functions and derivatives at the quad points
+    q_points = _get_gauss_quad_points_3()
+    quad3 = _get_node_weights(q_points)
+    quaddx3 = _get_dx_node_weights(q_points)
+    quaddy3 = _get_dy_node_weights(q_points)
+    weight3 = _get_gauss_quad_weights_3()
+    # -------------------------------------------------------------
+    # Evaluation of basis function and derivative of basis function at quadrature points in 4 cells around a node
+    qv1 = _get_qv1(q_points)
+    qv2 = _get_qv2(q_points)
+    qv3 = _get_qv3(q_points)
+    qv4 = _get_qv4(q_points)
+    dqv1x, dqv1y = _get_dqv1(q_points)
+    dqv2x, dqv2y = _get_dqv2(q_points)
+    dqv3x, dqv3y = _get_dqv3(q_points)
+    dqv4x, dqv4y = _get_dqv4(q_points)
+    # -------------------------------------------------------------
+    # initialize deformation field as identity
+    x = np.arange(im1.shape[1], dtype=np.float32)
+    y = np.arange(im1.shape[0], dtype=np.float32)
+    phix, phiy = np.meshgrid(x, y)
+
+    # Regularization parameter
+    L = 0.1
+
+    def E(phi_vec):
+        phi = phi_vec.reshape((2,) + im1.shape)
+        return energy(phi[1, ...], phi[0, ...], im1, im2, quad3, quaddx3, quaddy3, weight3, L)
+
+    def DE(phi_vec):
+        phi = phi_vec.reshape((2,) + im1.shape)
+        return gradient(phi[1, ...], phi[0, ...], im1, im2, quad3, quaddx3, quaddy3, weight3, qv1, qv2, qv3, qv4, dqv1x, dqv2x, dqv3x, dqv4x, dqv1y, dqv2y, dqv3y, dqv4y, L).ravel()
+
+    phi = np.stack([phiy, phix])
+
+    res = minimize(E, phi.ravel(), jac=DE, method='BFGS', options={'disp': True, 'maxiter': 1000})
+    phi_new = res.x.reshape(phi.shape)
+
+    mpl.rcParams["image.cmap"] = 'gray'
+    _, ax = plt.subplots(nrows=1, ncols=3)
+    ax[0].title.set_text('im1')
+    ax[0].imshow(im1)
+    ax[1].title.set_text('im2')
+    ax[1].imshow(im2)
+    ax[2].title.set_text('im1(phi)')
+    ax[2].imshow(map_coordinates(im1, [phi_new[0, ...], phi_new[1, ...]]))
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()
