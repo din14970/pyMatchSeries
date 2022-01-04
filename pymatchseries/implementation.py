@@ -1,9 +1,77 @@
 import numpy as np
-from numba import njit, prange
+from numba import njit, prange, int32, float32
+from numba.experimental import jitclass
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from scipy.ndimage import map_coordinates, zoom
 from scipy.optimize import minimize
+
+
+class InterpolationBase:
+    def __init__(self, data):
+        self.grid_shape = np.asarray(data.shape, dtype=int32)
+
+    def get_coeffs(self, pos):
+        ind = np.floor(pos).astype(int32)
+        c = pos-ind
+        valid = np.array([True, True])
+        for k in range(2):
+            if pos[k] < 0:
+                valid[k] = False
+                ind[k] = 0
+                c[k] = 0
+            elif pos[k] > self.grid_shape[k]-1:
+                valid[k] = False
+                ind[k] = self.grid_shape[k]-2
+                c[k] = 1
+            elif ind[k] == self.grid_shape[k]-1:
+                ind[k] -= 1
+                c[k] = 1
+        return valid, ind, c
+
+
+spec = [
+    ('grid_shape', int32[::1]),
+    ('data', float32[:, ::1]),
+]
+
+@jitclass(spec)
+class BilinearInterpolation(InterpolationBase):
+    __init__base = InterpolationBase.__init__
+
+    def __init__(self, data):
+        self.__init__base(data)
+        self.data = np.ascontiguousarray(data)
+
+    def evaluate(self, pos):
+        result = np.zeros(pos.shape[:2])
+        num_0 = pos.shape[0]
+        num_1 = pos.shape[1]
+        for i in range(num_0):
+            for j in range(num_1):
+                valid, ind, c = self.get_coeffs(pos[i, j, :])
+                result[i, j] = self.data[ind[0], ind[1]]*(1-c[0])*(1-c[1]) \
+                    + self.data[ind[0]+1, ind[1]]*c[0]*(1-c[1]) \
+                    + self.data[ind[0], ind[1]+1]*(1-c[0])*c[1] \
+                    + self.data[ind[0]+1, ind[1]+1]*c[0]*c[1]
+        return result
+
+    def evaluate_gradient(self, pos):
+        result = np.zeros(pos.shape)
+        num_0 = pos.shape[0]
+        num_1 = pos.shape[1]
+        for i in range(num_0):
+            for j in range(num_1):
+                valid, ind, c = self.get_coeffs(pos[i, j, :])
+                if valid[0]:
+                    result[i, j, 0] = (self.data[ind[0]+1, ind[1]]-self.data[ind[0], ind[1]])*(1-c[1]) \
+                        + (self.data[ind[0]+1, ind[1]+1] -
+                           self.data[ind[0], ind[1]+1])*c[1]
+                if valid[1]:
+                    result[i, j, 1] = (self.data[ind[0], ind[1]+1]-self.data[ind[0], ind[1]])*(1-c[0]) \
+                        + (self.data[ind[0]+1, ind[1]+1] -
+                           self.data[ind[0]+1, ind[1]])*c[0]
+        return result
 
 
 @njit
@@ -263,7 +331,7 @@ def _value_at_quad_points(im, node_weights):
     return output.reshape(((im.shape[0] - 1) * (im.shape[1] - 1), node_weights.shape[1]))
 
 
-def energy(phi_x, phi_y, im1, im2, node_weights, node_weights_dx, node_weights_dy, quad_weights, L):
+def energy(phi_x, phi_y, im1_interp, im2, node_weights, node_weights_dx, node_weights_dy, quad_weights, L):
     """
     The function that should be minimized
 
@@ -298,7 +366,8 @@ def energy(phi_x, phi_y, im1, im2, node_weights, node_weights_dx, node_weights_d
     f_y = _value_at_quad_points(phi_y, node_weights).ravel()
     g = _value_at_quad_points(im2, node_weights)
     # then we evaluate f(phi_x, phi_y)
-    f = _eval_im_at_coords(im1, f_x, f_y, np.mean(im1)).reshape(-1, node_weights.shape[1])
+    pos = np.stack((f_y, f_x), axis=-1)[np.newaxis, ...]
+    f = im1_interp.evaluate(pos).reshape(-1, node_weights.shape[1])
     # we evaluate integral with Gaussian quadrature = multiply integrand by weights of quad points and sum
     integrated = np.dot(np.sum((f - g) ** 2, axis=0), quad_weights)
     # regularization term = integral_over_domain of
@@ -419,7 +488,7 @@ def _integrate_pd_over_cells_single(quadeval, quad_weights, qv):
 def gradient(
     phi_x,
     phi_y,
-    im1,
+    im1_interp,
     im2,
     node_weights,
     node_weights_dx,
@@ -437,14 +506,16 @@ def gradient(
     f_x = _value_at_quad_points(phi_x, node_weights).ravel()
     f_y = _value_at_quad_points(phi_y, node_weights).ravel()
     g = _value_at_quad_points(im2, node_weights)
-    default = np.mean(im1)
     # b) evaluate first part of integrand but not yet the 2* as it appears also later
-    two_f_min_g = _eval_im_at_coords(im1, f_x, f_y, default).reshape(-1, node_weights.shape[1]) - g
+    pos = np.stack((f_y, f_x), axis=-1)[np.newaxis, ...]
+    f = im1_interp.evaluate(pos).reshape(-1, node_weights.shape[1]).astype(np.float32)
+    two_f_min_g = f - g
     # c) evaluate f' at phi_x, phi_y
-    dfdx = _eval_imdx_at_coords(im1, f_x, f_y, default).reshape(-1, node_weights.shape[1])
-    dfdy = _eval_imdy_at_coords(im1, f_x, f_y, default).reshape(-1, node_weights.shape[1])
+    df = im1_interp.evaluate_gradient(pos)
+    dfdy = df[..., 0].reshape(-1, node_weights.shape[1]).astype(np.float32)
+    dfdx = df[..., 1].reshape(-1, node_weights.shape[1]).astype(np.float32)
     # d) multiply
-    cell_shape = (im1.shape[0] - 1, im1.shape[1] - 1, node_weights.shape[1])
+    cell_shape = (phi_x.shape[0] - 1, phi_x.shape[1] - 1, node_weights.shape[1])
     prodx = (two_f_min_g * dfdx).reshape(cell_shape)
     prody = (two_f_min_g * dfdy).reshape(cell_shape)
     # 2) regularization term is 2*(dphi_x/dx - 1)* d(basis_function_k)/d_x + 2*(dphi_x/dy)* d(basis_func_k)/dy
@@ -498,13 +569,15 @@ def main():
     # Regularization parameter
     L = 0.1
 
+    im1_interp = BilinearInterpolation(im1)
+
     def E(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
-        return energy(phi[1, ...], phi[0, ...], im1, im2, quad3, quaddx3, quaddy3, weight3, L)
+        return energy(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, L)
 
     def DE(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
-        return gradient(phi[1, ...], phi[0, ...], im1, im2, quad3, quaddx3, quaddy3, weight3, qv, dqvx, dqvy, L).ravel()
+        return gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, qv, dqvx, dqvy, L).ravel()
 
     phi = np.stack([phiy, phix])
 
