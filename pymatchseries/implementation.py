@@ -331,6 +331,30 @@ def _value_at_quad_points(im, node_weights):
     return output.reshape(((im.shape[0] - 1) * (im.shape[1] - 1), node_weights.shape[1]))
 
 
+def residual(phi_x, phi_y, im1_interp, im2, node_weights, node_weights_dx, node_weights_dy, quad_weights_sqrt, L_sqrt):
+    # we evaluate integral_over_domain (f(phi(x)) - g(x))**2 where x are all quad points (x_i, y_i)
+    # first we evaluate (phi_x, phy_y) and g(x) at all quad points
+    f_x = _value_at_quad_points(phi_x, node_weights).ravel()
+    f_y = _value_at_quad_points(phi_y, node_weights).ravel()
+    g = _value_at_quad_points(im2, node_weights)
+    # then we evaluate f(phi_x, phi_y)
+    pos = np.stack((f_y, f_x), axis=-1)[np.newaxis, ...]
+    f = im1_interp.evaluate(pos).reshape(-1, node_weights.shape[1])
+
+    res_data = np.multiply(quad_weights_sqrt, (f - g))
+
+    phi_x_dx = _value_at_quad_points(phi_x, node_weights_dx)
+    phi_y_dx = _value_at_quad_points(phi_y, node_weights_dx)
+    phi_x_dy = _value_at_quad_points(phi_x, node_weights_dy)
+    phi_y_dy = _value_at_quad_points(phi_y, node_weights_dy)
+
+    res_regxx = L_sqrt * np.multiply(quad_weights_sqrt, phi_x_dx - 1)
+    res_regyx = L_sqrt * np.multiply(quad_weights_sqrt, phi_y_dx)
+    res_regxy = L_sqrt * np.multiply(quad_weights_sqrt, phi_x_dy)
+    res_regyy = L_sqrt * np.multiply(quad_weights_sqrt, phi_y_dy - 1)
+    return np.stack((res_data, res_regxx, res_regyx, res_regxy, res_regyy))
+
+
 def energy(phi_x, phi_y, im1_interp, im2, node_weights, node_weights_dx, node_weights_dy, quad_weights, L):
     """
     The function that should be minimized
@@ -554,6 +578,8 @@ def main():
     quaddx3 = _get_dx_node_weights(q_points)
     quaddy3 = _get_dy_node_weights(q_points)
     weight3 = _get_gauss_quad_weights_3()
+    weight3_sqrt = np.sqrt(weight3)
+
     # -------------------------------------------------------------
     # Evaluation of basis function and derivative of basis function at quadrature points in 4 cells around a node
     qv = np.array([_get_qv1(q_points), _get_qv2(q_points), _get_qv3(q_points), _get_qv4(q_points)])
@@ -568,12 +594,14 @@ def main():
 
     # Regularization parameter
     L = 0.1
+    L_sqrt = np.sqrt(L)
 
     im1_interp = BilinearInterpolation(im1)
 
     def E(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
-        return energy(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, L)
+        # return energy(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, L)
+        return np.sum(residual(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3_sqrt, L_sqrt)**2)
 
     def DE(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
