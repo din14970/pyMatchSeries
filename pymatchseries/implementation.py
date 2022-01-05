@@ -331,7 +331,7 @@ def _value_at_quad_points(im, node_weights):
     return output.reshape(((im.shape[0] - 1) * (im.shape[1] - 1), node_weights.shape[1]))
 
 
-def residual(phi_x, phi_y, im1_interp, im2, node_weights, node_weights_dx, node_weights_dy, quad_weights_sqrt, L_sqrt):
+def residual(phi_x, phi_y, im1_interp, im2, node_weights, quad_weights_sqrt, mat_reg_full, reg_shift, L_sqrt):
     # we evaluate integral_over_domain (f(phi(x)) - g(x))**2 where x are all quad points (x_i, y_i)
     # first we evaluate (phi_x, phy_y) and g(x) at all quad points
     f_x = _value_at_quad_points(phi_x, node_weights).ravel()
@@ -343,16 +343,7 @@ def residual(phi_x, phi_y, im1_interp, im2, node_weights, node_weights_dx, node_
 
     res_data = np.multiply(quad_weights_sqrt, (f - g))
 
-    phi_x_dx = _value_at_quad_points(phi_x, node_weights_dx)
-    phi_y_dx = _value_at_quad_points(phi_y, node_weights_dx)
-    phi_x_dy = _value_at_quad_points(phi_x, node_weights_dy)
-    phi_y_dy = _value_at_quad_points(phi_y, node_weights_dy)
-
-    res_regxx = L_sqrt * np.multiply(quad_weights_sqrt, phi_x_dx - 1)
-    res_regyx = L_sqrt * np.multiply(quad_weights_sqrt, phi_y_dx)
-    res_regxy = L_sqrt * np.multiply(quad_weights_sqrt, phi_x_dy)
-    res_regyy = L_sqrt * np.multiply(quad_weights_sqrt, phi_y_dy - 1)
-    return np.stack((res_data, res_regxx, res_regxy, res_regyx, res_regyy))
+    return np.concatenate((res_data.ravel(), mat_reg_full * np.concatenate((phi_y.ravel(), phi_x.ravel()))+reg_shift))
 
 
 def energy(phi_x, phi_y, im1_interp, im2, node_weights, node_weights_dx, node_weights_dy, quad_weights, L):
@@ -687,21 +678,26 @@ def main():
     mat_zero = csr_matrix((2*ones.size, phix.size))
     mat_reg_full = vstack([hstack([mat_zero, mat_reg]), hstack([mat_reg, mat_zero])])
 
+    # The regularizer in the residual is that matrix plus a shift that we precompute here.
+    b = - L_sqrt * np.multiply(weight3_sqrt, ones.reshape(-1, quad3.shape[1])).ravel()
+    zero_vec = np.zeros_like(ones).ravel()
+    reg_shift = np.concatenate((b, zero_vec, zero_vec, b))
+
     def E(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
         # return energy(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, L)
-        return np.sum(residual(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3_sqrt, L_sqrt)**2)
+        return np.sum(residual(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, weight3_sqrt, mat_reg_full, reg_shift, L_sqrt)**2)
 
     def DE(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
-        res = residual(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3_sqrt, L_sqrt)
+        res = residual(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, weight3_sqrt, mat_reg_full, reg_shift, L_sqrt)
         mat = residual_gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, weight3_sqrt, mat_reg_full, qv, L_sqrt)
         return 2*mat.T*res.ravel()
         # return gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, qv, dqvx, dqvy, L).ravel()
 
     def F(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
-        return residual(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3_sqrt, L_sqrt).ravel()
+        return residual(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, weight3_sqrt, mat_reg_full, reg_shift, L_sqrt)
 
     def DF(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
