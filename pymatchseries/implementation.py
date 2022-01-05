@@ -4,8 +4,8 @@ from numba.experimental import jitclass
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from scipy.ndimage import map_coordinates, zoom
-from scipy.optimize import minimize
-
+from scipy.optimize import minimize, least_squares
+from scipy.sparse import csr_matrix
 
 class InterpolationBase:
     def __init__(self, data):
@@ -352,7 +352,7 @@ def residual(phi_x, phi_y, im1_interp, im2, node_weights, node_weights_dx, node_
     res_regyx = L_sqrt * np.multiply(quad_weights_sqrt, phi_y_dx)
     res_regxy = L_sqrt * np.multiply(quad_weights_sqrt, phi_x_dy)
     res_regyy = L_sqrt * np.multiply(quad_weights_sqrt, phi_y_dy - 1)
-    return np.stack((res_data, res_regxx, res_regyx, res_regxy, res_regyy))
+    return np.stack((res_data, res_regxx, res_regxy, res_regyx, res_regyy))
 
 
 def energy(phi_x, phi_y, im1_interp, im2, node_weights, node_weights_dx, node_weights_dy, quad_weights, L):
@@ -509,6 +509,54 @@ def _integrate_pd_over_cells_single(quadeval, quad_weights, qv):
     return partial_deriv
 
 
+@njit()
+def ravel_index(pos, shape):
+    # Adapted from https://stackoverflow.com/a/4271004
+    res = 0
+    acc = 1
+    for pi, si in zip(pos[::-1], shape[::-1]):
+        res += pi * acc
+        acc *= si
+    return res
+
+
+@njit()
+def _evaluate_pd_on_quad_points(quadeval, quad_weights_sqrt, qv):
+    num = 4*quadeval.size
+    data = np.zeros(num, dtype=np.float32)
+    rows = np.zeros(num, dtype=np.float32)
+    cols = np.zeros(num, dtype=np.float32)
+    idx = 0
+    dof_shape = (quadeval.shape[0]+1, quadeval.shape[1]+1)
+    for i in prange(quadeval.shape[0]):
+        for j in range(quadeval.shape[1]):
+            for k in range(quadeval.shape[2]):
+                row_index = ravel_index((i, j, k), quadeval.shape)
+                val = quadeval[i, j, k] * quad_weights_sqrt[k]
+
+                data[idx] = val * qv[0, k] 
+                rows[idx] = row_index
+                cols[idx] = ravel_index((i + 1, j + 1), dof_shape)
+                idx = idx + 1
+
+                data[idx] = val * qv[1, k]
+                rows[idx] = row_index
+                cols[idx] = ravel_index((i + 1, j), dof_shape)
+                idx = idx + 1
+
+                data[idx] = val * qv[2, k]
+                rows[idx] = row_index
+                cols[idx] = ravel_index((i, j + 1), dof_shape)
+                idx = idx + 1
+
+                data[idx] = val * qv[3, k]
+                rows[idx] = row_index
+                cols[idx] = ravel_index((i, j), dof_shape)
+                idx = idx + 1
+
+    return data, rows, cols
+
+
 def gradient(
     phi_x,
     phi_y,
@@ -559,6 +607,48 @@ def gradient(
     return np.stack((partial_y, partial_x))
 
 
+def residual_gradient(
+    phi_x,
+    phi_y,
+    im1_interp,
+    im2,
+    node_weights,
+    node_weights_dx,
+    node_weights_dy,
+    quad_weights_sqrt,
+    qv,
+    dqvx,
+    dqvy,
+    L_sqrt,
+):
+    f_x = _value_at_quad_points(phi_x, node_weights).ravel()
+    f_y = _value_at_quad_points(phi_y, node_weights).ravel()
+    pos = np.stack((f_y, f_x), axis=-1)[np.newaxis, ...]
+    cell_shape = (phi_x.shape[0] - 1, phi_x.shape[1] - 1, node_weights.shape[1])
+    df = im1_interp.evaluate_gradient(pos)
+    dfdy = df[..., 0].reshape(-1, node_weights.shape[1]).reshape(cell_shape).astype(np.float32)
+    dfdx = df[..., 1].reshape(-1, node_weights.shape[1]).reshape(cell_shape).astype(np.float32)
+    data_y, rows_y, cols_y = _evaluate_pd_on_quad_points(dfdy, quad_weights_sqrt, qv)
+    data_x, rows_x, cols_x = _evaluate_pd_on_quad_points(dfdx, quad_weights_sqrt, qv)
+
+    # The derivative of the regularizer is actually a constant matrix that is the same for phi_x and phi_y
+    # This should only be computed once.
+    ones = np.ones_like(dfdy)
+    data_reg_yx, rows_reg_yx, cols_reg_yx = _evaluate_pd_on_quad_points(L_sqrt * ones, quad_weights_sqrt, dqvx)
+    data_reg_yy, rows_reg_yy, cols_reg_yy = _evaluate_pd_on_quad_points(L_sqrt * ones, quad_weights_sqrt, dqvy)
+    data_reg_xx, rows_reg_xx, cols_reg_xx = data_reg_yx, rows_reg_yx, cols_reg_yx
+    data_reg_xy, rows_reg_xy, cols_reg_xy = data_reg_yy, rows_reg_yy, cols_reg_yy
+
+    num_rows = 5*f_x.size
+    num_cols = 2*phi_x.size
+    mat = csr_matrix((np.concatenate((data_y, data_x, data_reg_xx, data_reg_yx, data_reg_xy, data_reg_yy)),
+                      (np.concatenate((rows_y, rows_x, rows_reg_xx+f_x.size, rows_reg_yx+3*f_x.size, rows_reg_xy+2*f_x.size, rows_reg_yy+4*f_x.size)),
+                       np.concatenate((cols_y, cols_x+phi_x.size, cols_reg_xx+phi_x.size, cols_reg_yx, cols_reg_xy+phi_x.size, cols_reg_xy)))
+                     ), shape=(num_rows, num_cols))
+
+    return mat
+
+
 def main():
     # im1 and im2 are two images (float32 dtype) of the same size assumed to be available
     im1 = np.zeros((64, 64), dtype=np.float32)
@@ -605,11 +695,23 @@ def main():
 
     def DE(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
-        return gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, qv, dqvx, dqvy, L).ravel()
+        res = residual(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3_sqrt, L_sqrt)
+        mat = residual_gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3_sqrt, qv, dqvx, dqvy, L_sqrt)
+        return 2*mat.T*res.ravel()
+        # return gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, qv, dqvx, dqvy, L).ravel()
+
+    def F(phi_vec):
+        phi = phi_vec.reshape((2,) + im1.shape)
+        return residual(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3_sqrt, L_sqrt).ravel()
+
+    def DF(phi_vec):
+        phi = phi_vec.reshape((2,) + im1.shape)
+        return residual_gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3_sqrt, qv, dqvx, dqvy, L_sqrt)
 
     phi = np.stack([phiy, phix])
 
-    res = minimize(E, phi.ravel(), jac=DE, method="BFGS", options={"disp": True, "maxiter": 1000})
+    res = least_squares(F, phi.ravel(), jac=DF, method='trf', verbose=2)
+    # res = minimize(E, phi.ravel(), jac=DE, method="BFGS", options={"disp": True, "maxiter": 1000})
     phi_new = res.x.reshape(phi.shape)
 
     mpl.rcParams["image.cmap"] = "gray"
