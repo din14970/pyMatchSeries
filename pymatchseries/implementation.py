@@ -5,7 +5,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from scipy.ndimage import map_coordinates, zoom
 from scipy.optimize import minimize, least_squares
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, vstack, hstack
 
 class InterpolationBase:
     def __init__(self, data):
@@ -613,12 +613,9 @@ def residual_gradient(
     im1_interp,
     im2,
     node_weights,
-    node_weights_dx,
-    node_weights_dy,
     quad_weights_sqrt,
+    mat_reg_full,
     qv,
-    dqvx,
-    dqvy,
     L_sqrt,
 ):
     f_x = _value_at_quad_points(phi_x, node_weights).ravel()
@@ -631,22 +628,12 @@ def residual_gradient(
     data_y, rows_y, cols_y = _evaluate_pd_on_quad_points(dfdy, quad_weights_sqrt, qv)
     data_x, rows_x, cols_x = _evaluate_pd_on_quad_points(dfdx, quad_weights_sqrt, qv)
 
-    # The derivative of the regularizer is actually a constant matrix that is the same for phi_x and phi_y
-    # This should only be computed once.
-    ones = np.ones_like(dfdy)
-    data_reg_yx, rows_reg_yx, cols_reg_yx = _evaluate_pd_on_quad_points(L_sqrt * ones, quad_weights_sqrt, dqvx)
-    data_reg_yy, rows_reg_yy, cols_reg_yy = _evaluate_pd_on_quad_points(L_sqrt * ones, quad_weights_sqrt, dqvy)
-    data_reg_xx, rows_reg_xx, cols_reg_xx = data_reg_yx, rows_reg_yx, cols_reg_yx
-    data_reg_xy, rows_reg_xy, cols_reg_xy = data_reg_yy, rows_reg_yy, cols_reg_yy
+    mat_data = csr_matrix((np.concatenate((data_y, data_x)),
+                           (np.concatenate((rows_y, rows_x)),
+                            np.concatenate((cols_y, cols_x+phi_x.size)))
+                          ), shape=(f_x.size, 2*phi_x.size))
 
-    num_rows = 5*f_x.size
-    num_cols = 2*phi_x.size
-    mat = csr_matrix((np.concatenate((data_y, data_x, data_reg_xx, data_reg_yx, data_reg_xy, data_reg_yy)),
-                      (np.concatenate((rows_y, rows_x, rows_reg_xx+f_x.size, rows_reg_yx+3*f_x.size, rows_reg_xy+2*f_x.size, rows_reg_yy+4*f_x.size)),
-                       np.concatenate((cols_y, cols_x+phi_x.size, cols_reg_xx+phi_x.size, cols_reg_yx, cols_reg_xy+phi_x.size, cols_reg_xy)))
-                     ), shape=(num_rows, num_cols))
-
-    return mat
+    return vstack([mat_data, mat_reg_full])
 
 
 def main():
@@ -688,6 +675,18 @@ def main():
 
     im1_interp = BilinearInterpolation(im1)
 
+    # The derivative of the regularizer is a constant matrix that we precompute here.
+    ones = np.ones((im1.shape[0] - 1, im1.shape[1] - 1, quad3.shape[1]), dtype=np.float32)
+    data_reg_x, rows_reg_x, cols_reg_x = _evaluate_pd_on_quad_points(L_sqrt * ones, weight3_sqrt, dqvx)
+    data_reg_y, rows_reg_y, cols_reg_y = _evaluate_pd_on_quad_points(L_sqrt * ones, weight3_sqrt, dqvy)
+    mat_reg = csr_matrix((np.concatenate((data_reg_x, data_reg_y)),
+                          (np.concatenate((rows_reg_x, rows_reg_y+ones.size)),
+                           np.concatenate((cols_reg_x, cols_reg_y)))
+                         ), shape=(2*ones.size, phix.size))
+
+    mat_zero = csr_matrix((2*ones.size, phix.size))
+    mat_reg_full = vstack([hstack([mat_zero, mat_reg]), hstack([mat_reg, mat_zero])])
+
     def E(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
         # return energy(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, L)
@@ -696,7 +695,7 @@ def main():
     def DE(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
         res = residual(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3_sqrt, L_sqrt)
-        mat = residual_gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3_sqrt, qv, dqvx, dqvy, L_sqrt)
+        mat = residual_gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, weight3_sqrt, mat_reg_full, qv, L_sqrt)
         return 2*mat.T*res.ravel()
         # return gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, qv, dqvx, dqvy, L).ravel()
 
@@ -706,7 +705,7 @@ def main():
 
     def DF(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
-        return residual_gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3_sqrt, qv, dqvx, dqvy, L_sqrt)
+        return residual_gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3,  weight3_sqrt, mat_reg_full, qv, L_sqrt)
 
     phi = np.stack([phiy, phix])
 
