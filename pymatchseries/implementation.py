@@ -626,13 +626,21 @@ def residual_gradient(
 
 
 class RegistrationObjectiveFunction:
-    def __init__(self, im1_interp, im2, node_weights, quad_weights, qv, dqvx, dqvy, L):
+    def __init__(self, im1_interp, im2, node_weights, node_weights_dx, node_weights_dy, quad_weights, qv, dqvx, dqvy, L):
         self.im1_interp = im1_interp
         self.im2 = im2
         self.node_weights = node_weights
         self.quad_weights_sqrt = np.sqrt(quad_weights)
         self.qv = qv
         self.L_sqrt = np.sqrt(L)
+
+        # The following only need to be stored for the "residual-free" implementation of the energy and its gradient
+        self.node_weights_dx = node_weights_dx
+        self.node_weights_dy = node_weights_dy
+        self.quad_weights = quad_weights
+        self.dqvx = dqvx
+        self.dqvy = dqvy
+        self.L = L
 
         # The derivative of the regularizer is a constant matrix that we precompute here.
         ones = np.ones((im2.shape[0] - 1, im2.shape[1] - 1, node_weights.shape[1]), dtype=np.float32)
@@ -660,9 +668,13 @@ class RegistrationObjectiveFunction:
         return residual_gradient(phi[1, ...], phi[0, ...], self.im1_interp, self.node_weights, self.quad_weights_sqrt, self.mat_reg_full, self.qv)
 
     def evaluate_energy(self, phi_vec):
+        # phi = phi_vec.reshape((2,) + self.im2.shape)
+        # return energy(phi[1, ...], phi[0, ...], self.im1_interp, self.im2, self.node_weights, self.node_weights_dx, self.node_weights_dy, self.quad_weights, self.L)
         return np.sum(self.evaluate_residual(phi_vec)**2)
 
     def evaluate_energy_gradient(self, phi_vec):
+        # phi = phi_vec.reshape((2,) + self.im2.shape)
+        # return gradient(phi[1, ...], phi[0, ...], self.im1_interp, self.im2, self.node_weights, self.node_weights_dx, self.node_weights_dy, self.quad_weights, self.qv, self.dqvx, self.dqvy, self.L).ravel()
         res = self.evaluate_residual(phi_vec)
         mat = self.evaluate_residual_gradient(phi_vec)
         return 2*mat.T*res.ravel()
@@ -705,20 +717,12 @@ def main():
 
     im1_interp = BilinearInterpolation(im1)
 
-    objective = RegistrationObjectiveFunction(im1_interp, im2, quad3, weight3, qv, dqvx, dqvy, L)
-
-    def E(phi_vec):
-        phi = phi_vec.reshape((2,) + im1.shape)
-        return energy(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, L)
-
-    def DE(phi_vec):
-        phi = phi_vec.reshape((2,) + im1.shape)
-        return gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, qv, dqvx, dqvy, L).ravel()
+    objective = RegistrationObjectiveFunction(im1_interp, im2, quad3, quaddx3, quaddy3, weight3, qv, dqvx, dqvy, L)
 
     phi = np.stack([phiy, phix])
 
     res = least_squares(objective.evaluate_residual, phi.ravel(), jac=objective.evaluate_residual_gradient, method='trf', verbose=2)
-    # res = minimize(E, phi.ravel(), jac=DE, method="BFGS", options={"disp": True, "maxiter": 1000})
+    # res = minimize(objective.evaluate_energy, phi.ravel(), jac=objective.evaluate_energy_gradient, method="BFGS", options={"disp": True, "maxiter": 1000})
     phi_new = res.x.reshape(phi.shape)
 
     mpl.rcParams["image.cmap"] = "gray"
