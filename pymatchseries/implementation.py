@@ -626,13 +626,31 @@ def residual_gradient(
 
 
 class RegistrationObjectiveFunction:
-    def __init__(self, im1_interp, im2, node_weights, node_weights_dx, node_weights_dy, quad_weights, qv, dqvx, dqvy, L):
-        self.im1_interp = im1_interp
+    def __init__(self, im1, im2, L):
+        # -------------------------------------------------------------
+        # Quadrature point values that are used throughout to evaluate functions and derivatives at the quad points
+        q_points = _get_gauss_quad_points_3()
+        self.node_weights = _get_node_weights(q_points)
+        quad_weights = _get_gauss_quad_weights_3()
+        node_weights_dx = _get_dx_node_weights(q_points)
+        node_weights_dy = _get_dy_node_weights(q_points)
+
+        # -------------------------------------------------------------
+        # Evaluation of basis function and derivative of basis function at quadrature points in 4 cells around a node
+        self.qv = np.array([_get_qv1(q_points), _get_qv2(q_points), _get_qv3(q_points), _get_qv4(q_points)])
+        dqv = np.array([_get_dqv1(q_points), _get_dqv2(q_points), _get_dqv3(q_points), _get_dqv4(q_points)])
+        dqvx = dqv[:, 0, :]
+        dqvy = dqv[:, 1, :]
+
+        self.im1_interp = BilinearInterpolation(im1)
         self.im2 = im2
-        self.node_weights = node_weights
         self.quad_weights_sqrt = np.sqrt(quad_weights)
-        self.qv = qv
         self.L_sqrt = np.sqrt(L)
+
+        x = np.arange(im1.shape[1], dtype=np.float32)
+        y = np.arange(im1.shape[0], dtype=np.float32)
+        phix, phiy = np.meshgrid(x, y)
+        self.identity = np.stack([phiy, phix])
 
         # The following only need to be stored for the "residual-free" implementation of the energy and its gradient
         self.node_weights_dx = node_weights_dx
@@ -643,7 +661,7 @@ class RegistrationObjectiveFunction:
         self.L = L
 
         # The derivative of the regularizer is a constant matrix that we precompute here.
-        ones = np.ones((im2.shape[0] - 1, im2.shape[1] - 1, node_weights.shape[1]), dtype=np.float32)
+        ones = np.ones((im2.shape[0] - 1, im2.shape[1] - 1, self.node_weights.shape[1]), dtype=np.float32)
         data_reg_x, rows_reg_x, cols_reg_x = _evaluate_pd_on_quad_points(self.L_sqrt * ones, self.quad_weights_sqrt, dqvx)
         data_reg_y, rows_reg_y, cols_reg_y = _evaluate_pd_on_quad_points(self.L_sqrt * ones, self.quad_weights_sqrt, dqvy)
         mat_reg = csr_matrix((np.concatenate((data_reg_x, data_reg_y)),
@@ -692,34 +710,14 @@ def main():
     im1 = zoom(im1, 0.125)
     im2 = zoom(im2, 0.125)
 
-    # -------------------------------------------------------------
-    # Quadrature point values that are used throughout to evaluate functions and derivatives at the quad points
-    q_points = _get_gauss_quad_points_3()
-    quad3 = _get_node_weights(q_points)
-    quaddx3 = _get_dx_node_weights(q_points)
-    quaddy3 = _get_dy_node_weights(q_points)
-    weight3 = _get_gauss_quad_weights_3()
-
-    # -------------------------------------------------------------
-    # Evaluation of basis function and derivative of basis function at quadrature points in 4 cells around a node
-    qv = np.array([_get_qv1(q_points), _get_qv2(q_points), _get_qv3(q_points), _get_qv4(q_points)])
-    dqv = np.array([_get_dqv1(q_points), _get_dqv2(q_points), _get_dqv3(q_points), _get_dqv4(q_points)])
-    dqvx = dqv[:, 0, :]
-    dqvy = dqv[:, 1, :]
-    # -------------------------------------------------------------
-    # initialize deformation field as identity
-    x = np.arange(im1.shape[1], dtype=np.float32)
-    y = np.arange(im1.shape[0], dtype=np.float32)
-    phix, phiy = np.meshgrid(x, y)
-
     # Regularization parameter
     L = 0.1
 
-    im1_interp = BilinearInterpolation(im1)
+    objective = RegistrationObjectiveFunction(im1, im2, L)
 
-    objective = RegistrationObjectiveFunction(im1_interp, im2, quad3, quaddx3, quaddy3, weight3, qv, dqvx, dqvy, L)
-
-    phi = np.stack([phiy, phix])
+    # -------------------------------------------------------------
+    # initialize deformation field as identity
+    phi = objective.identity
 
     res = least_squares(objective.evaluate_residual, phi.ravel(), jac=objective.evaluate_residual_gradient, method='trf', verbose=2)
     # res = minimize(objective.evaluate_energy, phi.ravel(), jac=objective.evaluate_energy_gradient, method="BFGS", options={"disp": True, "maxiter": 1000})
