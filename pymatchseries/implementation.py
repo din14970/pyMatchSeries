@@ -331,11 +331,11 @@ def _value_at_quad_points(im, node_weights):
     return output.reshape(((im.shape[0] - 1) * (im.shape[1] - 1), node_weights.shape[1]))
 
 
-def residual(phi_x, phi_y, im1_interp, im2, node_weights, quad_weights_sqrt, mat_reg_full, reg_shift, L_sqrt):
+def residual(disp_x, disp_y, im1_interp, im2, node_weights, quad_weights_sqrt, mat_reg_full, L_sqrt, identity):
     # we evaluate integral_over_domain (f(phi(x)) - g(x))**2 where x are all quad points (x_i, y_i)
     # first we evaluate (phi_x, phy_y) and g(x) at all quad points
-    f_x = _value_at_quad_points(phi_x, node_weights).ravel()
-    f_y = _value_at_quad_points(phi_y, node_weights).ravel()
+    f_x = _value_at_quad_points(disp_x + identity[1, ...], node_weights).ravel()
+    f_y = _value_at_quad_points(disp_y + identity[0, ...], node_weights).ravel()
     g = _value_at_quad_points(im2, node_weights)
     # then we evaluate f(phi_x, phi_y)
     pos = np.stack((f_y, f_x), axis=-1)[np.newaxis, ...]
@@ -343,10 +343,10 @@ def residual(phi_x, phi_y, im1_interp, im2, node_weights, quad_weights_sqrt, mat
 
     res_data = np.multiply(quad_weights_sqrt, (f - g))
 
-    return np.concatenate((res_data.ravel(), mat_reg_full * np.concatenate((phi_y.ravel(), phi_x.ravel()))+reg_shift))
+    return np.concatenate((res_data.ravel(), mat_reg_full * np.concatenate((disp_y.ravel(), disp_x.ravel()))))
 
 
-def energy(phi_x, phi_y, im1_interp, im2, node_weights, node_weights_dx, node_weights_dy, quad_weights, L):
+def energy(disp_x, disp_y, im1_interp, im2, node_weights, node_weights_dx, node_weights_dy, quad_weights, L, identity):
     """
     The function that should be minimized
 
@@ -377,8 +377,8 @@ def energy(phi_x, phi_y, im1_interp, im2, node_weights, node_weights_dx, node_we
     """
     # we evaluate integral_over_domain (f(phi(x)) - g(x))**2 where x are all quad points (x_i, y_i)
     # first we evaluate (phi_x, phy_y) and g(x) at all quad points
-    f_x = _value_at_quad_points(phi_x, node_weights).ravel()
-    f_y = _value_at_quad_points(phi_y, node_weights).ravel()
+    f_x = _value_at_quad_points(disp_x + identity[1, ...], node_weights).ravel()
+    f_y = _value_at_quad_points(disp_y + identity[0, ...], node_weights).ravel()
     g = _value_at_quad_points(im2, node_weights)
     # then we evaluate f(phi_x, phi_y)
     pos = np.stack((f_y, f_x), axis=-1)[np.newaxis, ...]
@@ -388,15 +388,15 @@ def energy(phi_x, phi_y, im1_interp, im2, node_weights, node_weights_dx, node_we
     # regularization term = integral_over_domain of
     # (dphi_x/dx - 1)**2 + (dphi_x/dy)**2 + (dphi_y/dx)**2 + (dphi_y/dy-1)**2
     # The same formula can be used but plugging in different node weights accounting for differentiation
-    phi_x_dx = _value_at_quad_points(phi_x, node_weights_dx)
-    phi_y_dx = _value_at_quad_points(phi_y, node_weights_dx)
-    phi_x_dy = _value_at_quad_points(phi_x, node_weights_dy)
-    phi_y_dy = _value_at_quad_points(phi_y, node_weights_dy)
+    disp_x_dx = _value_at_quad_points(disp_x, node_weights_dx)
+    disp_y_dx = _value_at_quad_points(disp_y, node_weights_dx)
+    disp_x_dy = _value_at_quad_points(disp_x, node_weights_dy)
+    disp_y_dy = _value_at_quad_points(disp_y, node_weights_dy)
     # the same integration trick
-    regxx = np.dot(np.sum((phi_x_dx - 1) ** 2, axis=0), quad_weights)
-    regyx = np.dot(np.sum((phi_y_dx) ** 2, axis=0), quad_weights)
-    regxy = np.dot(np.sum((phi_x_dy) ** 2, axis=0), quad_weights)
-    regyy = np.dot(np.sum((phi_y_dy - 1) ** 2, axis=0), quad_weights)
+    regxx = np.dot(np.sum((disp_x_dx) ** 2, axis=0), quad_weights)
+    regyx = np.dot(np.sum((disp_y_dx) ** 2, axis=0), quad_weights)
+    regxy = np.dot(np.sum((disp_x_dy) ** 2, axis=0), quad_weights)
+    regyy = np.dot(np.sum((disp_y_dy) ** 2, axis=0), quad_weights)
     return integrated + L * (regxx + regyx + regxy + regyy)
 
 
@@ -549,8 +549,8 @@ def _evaluate_pd_on_quad_points(quadeval, quad_weights_sqrt, qv):
 
 
 def gradient(
-    phi_x,
-    phi_y,
+    disp_x,
+    disp_y,
     im1_interp,
     im2,
     node_weights,
@@ -561,13 +561,14 @@ def gradient(
     dqvx,
     dqvy,
     L,
+    identity
 ):
     # Evaluates d/dphi_k (E)
     # 1) integrate_over_domain 2*(f(phi(x)) - g(x)) * f'(phi(x)) * dphi/dphi_k
     # dphi/dphi_k = basis_function_k
     # a) phi_x(x), phi_y(x), g(x) at all quad coords
-    f_x = _value_at_quad_points(phi_x, node_weights).ravel()
-    f_y = _value_at_quad_points(phi_y, node_weights).ravel()
+    f_x = _value_at_quad_points(disp_x + identity[1, ...], node_weights).ravel()
+    f_y = _value_at_quad_points(disp_y + identity[0, ...], node_weights).ravel()
     g = _value_at_quad_points(im2, node_weights)
     # b) evaluate first part of integrand but not yet the 2* as it appears also later
     pos = np.stack((f_y, f_x), axis=-1)[np.newaxis, ...]
@@ -578,39 +579,40 @@ def gradient(
     dfdy = df[..., 0].reshape(-1, node_weights.shape[1]).astype(np.float32)
     dfdx = df[..., 1].reshape(-1, node_weights.shape[1]).astype(np.float32)
     # d) multiply
-    cell_shape = (phi_x.shape[0] - 1, phi_x.shape[1] - 1, node_weights.shape[1])
+    cell_shape = (disp_x.shape[0] - 1, disp_x.shape[1] - 1, node_weights.shape[1])
     prodx = (two_f_min_g * dfdx).reshape(cell_shape)
     prody = (two_f_min_g * dfdy).reshape(cell_shape)
     # 2) regularization term is 2*(dphi_x/dx - 1)* d(basis_function_k)/d_x + 2*(dphi_x/dy)* d(basis_func_k)/dy
     # and                       2*(dphi_y/dx)* d(basis_func_k)/dx + 2*(dphi_y/dy - 1)* d(basis_function_k)/dy
-    phi_x_dx = _value_at_quad_points(phi_x, node_weights_dx).reshape(cell_shape)
-    phi_y_dx = _value_at_quad_points(phi_y, node_weights_dx).reshape(cell_shape)
-    phi_x_dy = _value_at_quad_points(phi_x, node_weights_dy).reshape(cell_shape)
-    phi_y_dy = _value_at_quad_points(phi_y, node_weights_dy).reshape(cell_shape)
+    disp_x_dx = _value_at_quad_points(disp_x, node_weights_dx).reshape(cell_shape)
+    disp_y_dx = _value_at_quad_points(disp_y, node_weights_dx).reshape(cell_shape)
+    disp_x_dy = _value_at_quad_points(disp_x, node_weights_dy).reshape(cell_shape)
+    disp_y_dy = _value_at_quad_points(disp_y, node_weights_dy).reshape(cell_shape)
     # 3) integrate over all the cells
     partial_y = _integrate_pd_over_cells_single(2 * prody, quad_weights, qv)
     partial_x = _integrate_pd_over_cells_single(2 * prodx, quad_weights, qv)
-    partial_y += _integrate_pd_over_cells_single(2 * L * phi_y_dx, quad_weights, dqvx)
-    partial_y += _integrate_pd_over_cells_single(2 * L * (phi_y_dy - 1), quad_weights, dqvy)
-    partial_x += _integrate_pd_over_cells_single(2 * L * (phi_x_dx - 1), quad_weights, dqvx)
-    partial_x += _integrate_pd_over_cells_single(2 * L * phi_x_dy, quad_weights, dqvy)
+    partial_y += _integrate_pd_over_cells_single(2 * L * disp_y_dx, quad_weights, dqvx)
+    partial_y += _integrate_pd_over_cells_single(2 * L * disp_y_dy, quad_weights, dqvy)
+    partial_x += _integrate_pd_over_cells_single(2 * L * disp_x_dx, quad_weights, dqvx)
+    partial_x += _integrate_pd_over_cells_single(2 * L * disp_x_dy, quad_weights, dqvy)
 
     return np.stack((partial_y, partial_x))
 
 
 def residual_gradient(
-    phi_x,
-    phi_y,
+    disp_x,
+    disp_y,
     im1_interp,
     node_weights,
     quad_weights_sqrt,
     mat_reg_full,
     qv,
+    identity
 ):
-    f_x = _value_at_quad_points(phi_x, node_weights)
-    f_y = _value_at_quad_points(phi_y, node_weights)
+    f_x = _value_at_quad_points(disp_x + identity[1, ...], node_weights)
+    f_y = _value_at_quad_points(disp_y + identity[0, ...], node_weights)
     pos = np.stack((f_y, f_x), axis=-1)
-    cell_shape = (phi_x.shape[0] - 1, phi_x.shape[1] - 1, node_weights.shape[1])
+    cell_shape = (disp_x.shape[0] - 1, disp_x.shape[1] - 1, node_weights.shape[1])
     df = im1_interp.evaluate_gradient(pos)
     dfdy = df[..., 0].reshape(cell_shape).astype(np.float32)
     dfdx = df[..., 1].reshape(cell_shape).astype(np.float32)
@@ -619,8 +621,8 @@ def residual_gradient(
 
     mat_data = csr_matrix((np.concatenate((data_y, data_x)),
                            (np.concatenate((rows_y, rows_x)),
-                            np.concatenate((cols_y, cols_x+phi_x.size)))
-                          ), shape=(f_x.size, 2*phi_x.size))
+                            np.concatenate((cols_y, cols_x+disp_x.size)))
+                          ), shape=(f_x.size, 2*disp_x.size))
 
     return vstack([mat_data, mat_reg_full])
 
@@ -649,8 +651,8 @@ class RegistrationObjectiveFunction:
 
         x = np.arange(im1.shape[1], dtype=np.float32)
         y = np.arange(im1.shape[0], dtype=np.float32)
-        phix, phiy = np.meshgrid(x, y)
-        self.identity = np.stack([phiy, phix])
+        identity_x, identity_y = np.meshgrid(x, y)
+        self.identity = np.stack([identity_y, identity_x])
 
         # The following only need to be stored for the "residual-free" implementation of the energy and its gradient
         self.node_weights_dx = node_weights_dx
@@ -672,29 +674,24 @@ class RegistrationObjectiveFunction:
         mat_zero = csr_matrix((2*ones.size, self.im2.size))
         self.mat_reg_full = vstack([hstack([mat_zero, mat_reg]), hstack([mat_reg, mat_zero])])
 
-        # The regularizer in the residual is that matrix plus a shift that we precompute here.
-        b = - self.L_sqrt * np.multiply(self.quad_weights_sqrt, ones.reshape(-1, self.node_weights.shape[1])).ravel()
-        zero_vec = np.zeros_like(ones).ravel()
-        self.reg_shift = np.concatenate((b, zero_vec, zero_vec, b))
+    def evaluate_residual(self, disp_vec):
+        disp = disp_vec.reshape((2,) + self.im2.shape)
+        return residual(disp[1, ...], disp[0, ...], self.im1_interp, self.im2, self.node_weights, self.quad_weights_sqrt, self.mat_reg_full, self.L_sqrt, self.identity)
 
-    def evaluate_residual(self, phi_vec):
-        phi = phi_vec.reshape((2,) + self.im2.shape)
-        return residual(phi[1, ...], phi[0, ...], self.im1_interp, self.im2, self.node_weights, self.quad_weights_sqrt, self.mat_reg_full, self.reg_shift, self.L_sqrt)
+    def evaluate_residual_gradient(self, disp_vec):
+        disp = disp_vec.reshape((2,) + self.im2.shape)
+        return residual_gradient(disp[1, ...], disp[0, ...], self.im1_interp, self.node_weights, self.quad_weights_sqrt, self.mat_reg_full, self.qv, self.identity)
 
-    def evaluate_residual_gradient(self, phi_vec):
-        phi = phi_vec.reshape((2,) + self.im2.shape)
-        return residual_gradient(phi[1, ...], phi[0, ...], self.im1_interp, self.node_weights, self.quad_weights_sqrt, self.mat_reg_full, self.qv)
+    def evaluate_energy(self, disp_vec):
+        # disp = disp_vec.reshape((2,) + self.im2.shape)
+        # return energy(disp[1, ...], disp[0, ...], self.im1_interp, self.im2, self.node_weights, self.node_weights_dx, self.node_weights_dy, self.quad_weights, self.L, self.identity)
+        return np.sum(self.evaluate_residual(disp_vec)**2)
 
-    def evaluate_energy(self, phi_vec):
-        # phi = phi_vec.reshape((2,) + self.im2.shape)
-        # return energy(phi[1, ...], phi[0, ...], self.im1_interp, self.im2, self.node_weights, self.node_weights_dx, self.node_weights_dy, self.quad_weights, self.L)
-        return np.sum(self.evaluate_residual(phi_vec)**2)
-
-    def evaluate_energy_gradient(self, phi_vec):
-        # phi = phi_vec.reshape((2,) + self.im2.shape)
-        # return gradient(phi[1, ...], phi[0, ...], self.im1_interp, self.im2, self.node_weights, self.node_weights_dx, self.node_weights_dy, self.quad_weights, self.qv, self.dqvx, self.dqvy, self.L).ravel()
-        res = self.evaluate_residual(phi_vec)
-        mat = self.evaluate_residual_gradient(phi_vec)
+    def evaluate_energy_gradient(self, disp_vec):
+        # disp = disp_vec.reshape((2,) + self.im2.shape)
+        # return gradient(disp[1, ...], disp[0, ...], self.im1_interp, self.im2, self.node_weights, self.node_weights_dx, self.node_weights_dy, self.quad_weights, self.qv, self.dqvx, self.dqvy, self.L, self.identity).ravel()
+        res = self.evaluate_residual(disp_vec)
+        mat = self.evaluate_residual_gradient(disp_vec)
         return 2*mat.T*res.ravel()
 
 
@@ -716,12 +713,12 @@ def main():
     objective = RegistrationObjectiveFunction(im1, im2, L)
 
     # -------------------------------------------------------------
-    # initialize deformation field as identity
-    phi = objective.identity
+    # initialize displacement as zero
+    disp = np.zeros_like(objective.identity)
 
-    res = least_squares(objective.evaluate_residual, phi.ravel(), jac=objective.evaluate_residual_gradient, method='trf', verbose=2)
-    # res = minimize(objective.evaluate_energy, phi.ravel(), jac=objective.evaluate_energy_gradient, method="BFGS", options={"disp": True, "maxiter": 1000})
-    phi_new = res.x.reshape(phi.shape)
+    res = least_squares(objective.evaluate_residual, disp.ravel(), jac=objective.evaluate_residual_gradient, method='trf', verbose=2)
+    # res = minimize(objective.evaluate_energy, disp.ravel(), jac=objective.evaluate_energy_gradient, method="BFGS", options={"disp": True, "maxiter": 1000})
+    disp_new = res.x.reshape(disp.shape)
 
     mpl.rcParams["image.cmap"] = "gray"
     _, ax = plt.subplots(nrows=1, ncols=3)
@@ -730,7 +727,7 @@ def main():
     ax[1].title.set_text("im2")
     ax[1].imshow(im2)
     ax[2].title.set_text("im1(phi)")
-    ax[2].imshow(map_coordinates(im1, [phi_new[0, ...], phi_new[1, ...]]))
+    ax[2].imshow(map_coordinates(im1, [disp_new[0, ...]+objective.identity[0, ...], disp_new[1, ...]+objective.identity[1, ...]]))
     plt.show()
 
 
