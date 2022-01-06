@@ -602,20 +602,18 @@ def residual_gradient(
     phi_x,
     phi_y,
     im1_interp,
-    im2,
     node_weights,
     quad_weights_sqrt,
     mat_reg_full,
     qv,
-    L_sqrt,
 ):
-    f_x = _value_at_quad_points(phi_x, node_weights).ravel()
-    f_y = _value_at_quad_points(phi_y, node_weights).ravel()
-    pos = np.stack((f_y, f_x), axis=-1)[np.newaxis, ...]
+    f_x = _value_at_quad_points(phi_x, node_weights)
+    f_y = _value_at_quad_points(phi_y, node_weights)
+    pos = np.stack((f_y, f_x), axis=-1)
     cell_shape = (phi_x.shape[0] - 1, phi_x.shape[1] - 1, node_weights.shape[1])
     df = im1_interp.evaluate_gradient(pos)
-    dfdy = df[..., 0].reshape(-1, node_weights.shape[1]).reshape(cell_shape).astype(np.float32)
-    dfdx = df[..., 1].reshape(-1, node_weights.shape[1]).reshape(cell_shape).astype(np.float32)
+    dfdy = df[..., 0].reshape(cell_shape).astype(np.float32)
+    dfdx = df[..., 1].reshape(cell_shape).astype(np.float32)
     data_y, rows_y, cols_y = _evaluate_pd_on_quad_points(dfdy, quad_weights_sqrt, qv)
     data_x, rows_x, cols_x = _evaluate_pd_on_quad_points(dfdx, quad_weights_sqrt, qv)
 
@@ -691,7 +689,7 @@ def main():
     def DE(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
         res = residual(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, weight3_sqrt, mat_reg_full, reg_shift, L_sqrt)
-        mat = residual_gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, weight3_sqrt, mat_reg_full, qv, L_sqrt)
+        mat = residual_gradient(phi[1, ...], phi[0, ...], im1_interp, quad3, weight3_sqrt, mat_reg_full, qv)
         return 2*mat.T*res.ravel()
         # return gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, qv, dqvx, dqvy, L).ravel()
 
@@ -701,7 +699,7 @@ def main():
 
     def DF(phi_vec):
         phi = phi_vec.reshape((2,) + im1.shape)
-        return residual_gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3,  weight3_sqrt, mat_reg_full, qv, L_sqrt)
+        return residual_gradient(phi[1, ...], phi[0, ...], im1_interp, quad3, weight3_sqrt, mat_reg_full, qv)
 
     phi = np.stack([phiy, phix])
 
