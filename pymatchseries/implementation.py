@@ -626,11 +626,11 @@ def residual_gradient(
 
 
 class RegistrationObjectiveFunction:
-    def __init__(self, im1_interp, im2, node_weights, quad_weights_sqrt, qv, dqvx, dqvy, L):
+    def __init__(self, im1_interp, im2, node_weights, quad_weights, qv, dqvx, dqvy, L):
         self.im1_interp = im1_interp
         self.im2 = im2
         self.node_weights = node_weights
-        self.quad_weights_sqrt = quad_weights_sqrt
+        self.quad_weights_sqrt = np.sqrt(quad_weights)
         self.qv = qv
         self.L_sqrt = np.sqrt(L)
 
@@ -659,6 +659,14 @@ class RegistrationObjectiveFunction:
         phi = phi_vec.reshape((2,) + self.im2.shape)
         return residual_gradient(phi[1, ...], phi[0, ...], self.im1_interp, self.node_weights, self.quad_weights_sqrt, self.mat_reg_full, self.qv)
 
+    def evaluate_energy(self, phi_vec):
+        return np.sum(self.evaluate_residual(phi_vec)**2)
+
+    def evaluate_energy_gradient(self, phi_vec):
+        res = self.evaluate_residual(phi_vec)
+        mat = self.evaluate_residual_gradient(phi_vec)
+        return 2*mat.T*res.ravel()
+
 
 def main():
     # im1 and im2 are two images (float32 dtype) of the same size assumed to be available
@@ -679,7 +687,6 @@ def main():
     quaddx3 = _get_dx_node_weights(q_points)
     quaddy3 = _get_dy_node_weights(q_points)
     weight3 = _get_gauss_quad_weights_3()
-    weight3_sqrt = np.sqrt(weight3)
 
     # -------------------------------------------------------------
     # Evaluation of basis function and derivative of basis function at quadrature points in 4 cells around a node
@@ -698,19 +705,15 @@ def main():
 
     im1_interp = BilinearInterpolation(im1)
 
-    objective = RegistrationObjectiveFunction(im1_interp, im2, quad3, weight3_sqrt, qv, dqvx, dqvy, L)
+    objective = RegistrationObjectiveFunction(im1_interp, im2, quad3, weight3, qv, dqvx, dqvy, L)
 
     def E(phi_vec):
-        # phi = phi_vec.reshape((2,) + im1.shape)
-        # return energy(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, L)
-        return np.sum(objective.evaluate_residual(phi_vec)**2)
+        phi = phi_vec.reshape((2,) + im1.shape)
+        return energy(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, L)
 
     def DE(phi_vec):
-        # phi = phi_vec.reshape((2,) + im1.shape)
-        res = objective.evaluate_residual(phi_vec)
-        mat = objective.evaluate_residual_gradient(phi_vec)
-        return 2*mat.T*res.ravel()
-        # return gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, qv, dqvx, dqvy, L).ravel()
+        phi = phi_vec.reshape((2,) + im1.shape)
+        return gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, qv, dqvx, dqvy, L).ravel()
 
     phi = np.stack([phiy, phix])
 
