@@ -629,22 +629,28 @@ def residual_gradient(
 
 class RegistrationObjectiveFunction:
     def __init__(self, im1, im2, L):
+        self.grid_shape = im1.shape
+        self.grid_h = 1 / (max(self.grid_shape) - 1)
+
         # -------------------------------------------------------------
         # Quadrature point values that are used throughout to evaluate functions and derivatives at the quad points
         q_points = _get_gauss_quad_points_3()
         self.node_weights = _get_node_weights(q_points)
-        quad_weights = _get_gauss_quad_weights_3()
-        node_weights_dx = _get_dx_node_weights(q_points)
-        node_weights_dy = _get_dy_node_weights(q_points)
+        # By scaling quadrature weights with the element volume, we normalize the integration domain so that
+        # its longest axis has length 1.
+        quad_weights = (self.grid_h**2) * _get_gauss_quad_weights_3()
+        # By decreasing the size of the elements, the size of the derivative increases.
+        node_weights_dx = _get_dx_node_weights(q_points)/self.grid_h
+        node_weights_dy = _get_dy_node_weights(q_points)/self.grid_h
 
         # -------------------------------------------------------------
         # Evaluation of basis function and derivative of basis function at quadrature points in 4 cells around a node
         self.qv = np.array([_get_qv1(q_points), _get_qv2(q_points), _get_qv3(q_points), _get_qv4(q_points)])
-        dqv = np.array([_get_dqv1(q_points), _get_dqv2(q_points), _get_dqv3(q_points), _get_dqv4(q_points)])
+        # By decreasing the size of the elements, the size of the derivative increases.
+        dqv = np.array([_get_dqv1(q_points), _get_dqv2(q_points), _get_dqv3(q_points), _get_dqv4(q_points)])/self.grid_h
         dqvx = dqv[:, 0, :]
         dqvy = dqv[:, 1, :]
 
-        self.grid_shape = im1.shape
         self.im1_interp = BilinearInterpolation(im1)
         self.im2 = im2
         self.quad_weights_sqrt = np.sqrt(quad_weights)
@@ -709,7 +715,7 @@ def main():
     im2 = zoom(im2, 0.125)
 
     # Regularization parameter
-    L = 0.1
+    L = 0.0143
 
     objective = RegistrationObjectiveFunction(im1, im2, L)
 
