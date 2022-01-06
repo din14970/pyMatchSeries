@@ -625,6 +625,26 @@ def residual_gradient(
     return vstack([mat_data, mat_reg_full])
 
 
+class RegistrationObjectiveFunction:
+    def __init__(self, im1_interp, im2, node_weights, quad_weights_sqrt, qv, mat_reg_full, reg_shift, L_sqrt):
+        self.im1_interp = im1_interp
+        self.im2 = im2
+        self.node_weights = node_weights
+        self.quad_weights_sqrt = quad_weights_sqrt
+        self.qv = qv
+        self.mat_reg_full = mat_reg_full
+        self.reg_shift = reg_shift
+        self.L_sqrt = L_sqrt
+
+    def evaluate_residual(self, phi_vec):
+        phi = phi_vec.reshape((2,) + self.im2.shape)
+        return residual(phi[1, ...], phi[0, ...], self.im1_interp, self.im2, self.node_weights, self.quad_weights_sqrt, self.mat_reg_full, self.reg_shift, self.L_sqrt)
+
+    def evaluate_residual_gradient(self, phi_vec):
+        phi = phi_vec.reshape((2,) + self.im2.shape)
+        return residual_gradient(phi[1, ...], phi[0, ...], self.im1_interp, self.node_weights, self.quad_weights_sqrt, self.mat_reg_full, self.qv)
+
+
 def main():
     # im1 and im2 are two images (float32 dtype) of the same size assumed to be available
     im1 = np.zeros((64, 64), dtype=np.float32)
@@ -681,29 +701,23 @@ def main():
     zero_vec = np.zeros_like(ones).ravel()
     reg_shift = np.concatenate((b, zero_vec, zero_vec, b))
 
+    objective = RegistrationObjectiveFunction(im1_interp, im2, quad3, weight3_sqrt, qv, mat_reg_full, reg_shift, L_sqrt)
+
     def E(phi_vec):
-        phi = phi_vec.reshape((2,) + im1.shape)
+        # phi = phi_vec.reshape((2,) + im1.shape)
         # return energy(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, L)
-        return np.sum(residual(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, weight3_sqrt, mat_reg_full, reg_shift, L_sqrt)**2)
+        return np.sum(objective.evaluate_residual(phi_vec)**2)
 
     def DE(phi_vec):
-        phi = phi_vec.reshape((2,) + im1.shape)
-        res = residual(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, weight3_sqrt, mat_reg_full, reg_shift, L_sqrt)
-        mat = residual_gradient(phi[1, ...], phi[0, ...], im1_interp, quad3, weight3_sqrt, mat_reg_full, qv)
+        # phi = phi_vec.reshape((2,) + im1.shape)
+        res = objective.evaluate_residual(phi_vec)
+        mat = objective.evaluate_residual_gradient(phi_vec)
         return 2*mat.T*res.ravel()
         # return gradient(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, quaddx3, quaddy3, weight3, qv, dqvx, dqvy, L).ravel()
 
-    def F(phi_vec):
-        phi = phi_vec.reshape((2,) + im1.shape)
-        return residual(phi[1, ...], phi[0, ...], im1_interp, im2, quad3, weight3_sqrt, mat_reg_full, reg_shift, L_sqrt)
-
-    def DF(phi_vec):
-        phi = phi_vec.reshape((2,) + im1.shape)
-        return residual_gradient(phi[1, ...], phi[0, ...], im1_interp, quad3, weight3_sqrt, mat_reg_full, qv)
-
     phi = np.stack([phiy, phix])
 
-    res = least_squares(F, phi.ravel(), jac=DF, method='trf', verbose=2)
+    res = least_squares(objective.evaluate_residual, phi.ravel(), jac=objective.evaluate_residual_gradient, method='trf', verbose=2)
     # res = minimize(E, phi.ravel(), jac=DE, method="BFGS", options={"disp": True, "maxiter": 1000})
     phi_new = res.x.reshape(phi.shape)
 
