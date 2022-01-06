@@ -626,15 +626,30 @@ def residual_gradient(
 
 
 class RegistrationObjectiveFunction:
-    def __init__(self, im1_interp, im2, node_weights, quad_weights_sqrt, qv, mat_reg_full, reg_shift, L_sqrt):
+    def __init__(self, im1_interp, im2, node_weights, quad_weights_sqrt, qv, dqvx, dqvy, L):
         self.im1_interp = im1_interp
         self.im2 = im2
         self.node_weights = node_weights
         self.quad_weights_sqrt = quad_weights_sqrt
         self.qv = qv
-        self.mat_reg_full = mat_reg_full
-        self.reg_shift = reg_shift
-        self.L_sqrt = L_sqrt
+        self.L_sqrt = np.sqrt(L)
+
+        # The derivative of the regularizer is a constant matrix that we precompute here.
+        ones = np.ones((im2.shape[0] - 1, im2.shape[1] - 1, node_weights.shape[1]), dtype=np.float32)
+        data_reg_x, rows_reg_x, cols_reg_x = _evaluate_pd_on_quad_points(self.L_sqrt * ones, self.quad_weights_sqrt, dqvx)
+        data_reg_y, rows_reg_y, cols_reg_y = _evaluate_pd_on_quad_points(self.L_sqrt * ones, self.quad_weights_sqrt, dqvy)
+        mat_reg = csr_matrix((np.concatenate((data_reg_x, data_reg_y)),
+                            (np.concatenate((rows_reg_x, rows_reg_y+ones.size)),
+                            np.concatenate((cols_reg_x, cols_reg_y)))
+                            ), shape=(2*ones.size, self.im2.size))
+
+        mat_zero = csr_matrix((2*ones.size, self.im2.size))
+        self.mat_reg_full = vstack([hstack([mat_zero, mat_reg]), hstack([mat_reg, mat_zero])])
+
+        # The regularizer in the residual is that matrix plus a shift that we precompute here.
+        b = - self.L_sqrt * np.multiply(self.quad_weights_sqrt, ones.reshape(-1, self.node_weights.shape[1])).ravel()
+        zero_vec = np.zeros_like(ones).ravel()
+        self.reg_shift = np.concatenate((b, zero_vec, zero_vec, b))
 
     def evaluate_residual(self, phi_vec):
         phi = phi_vec.reshape((2,) + self.im2.shape)
@@ -680,28 +695,10 @@ def main():
 
     # Regularization parameter
     L = 0.1
-    L_sqrt = np.sqrt(L)
 
     im1_interp = BilinearInterpolation(im1)
 
-    # The derivative of the regularizer is a constant matrix that we precompute here.
-    ones = np.ones((im1.shape[0] - 1, im1.shape[1] - 1, quad3.shape[1]), dtype=np.float32)
-    data_reg_x, rows_reg_x, cols_reg_x = _evaluate_pd_on_quad_points(L_sqrt * ones, weight3_sqrt, dqvx)
-    data_reg_y, rows_reg_y, cols_reg_y = _evaluate_pd_on_quad_points(L_sqrt * ones, weight3_sqrt, dqvy)
-    mat_reg = csr_matrix((np.concatenate((data_reg_x, data_reg_y)),
-                          (np.concatenate((rows_reg_x, rows_reg_y+ones.size)),
-                           np.concatenate((cols_reg_x, cols_reg_y)))
-                         ), shape=(2*ones.size, phix.size))
-
-    mat_zero = csr_matrix((2*ones.size, phix.size))
-    mat_reg_full = vstack([hstack([mat_zero, mat_reg]), hstack([mat_reg, mat_zero])])
-
-    # The regularizer in the residual is that matrix plus a shift that we precompute here.
-    b = - L_sqrt * np.multiply(weight3_sqrt, ones.reshape(-1, quad3.shape[1])).ravel()
-    zero_vec = np.zeros_like(ones).ravel()
-    reg_shift = np.concatenate((b, zero_vec, zero_vec, b))
-
-    objective = RegistrationObjectiveFunction(im1_interp, im2, quad3, weight3_sqrt, qv, mat_reg_full, reg_shift, L_sqrt)
+    objective = RegistrationObjectiveFunction(im1_interp, im2, quad3, weight3_sqrt, qv, dqvx, dqvy, L)
 
     def E(phi_vec):
         # phi = phi_vec.reshape((2,) + im1.shape)
