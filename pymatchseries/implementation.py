@@ -719,8 +719,8 @@ def main():
     num_levels = 5
 
     # Create an image hierarchy for both of our images
-    pyramid_tem = tuple(pyramid_gaussian(im1, max_layer=num_levels-1, downscale=2, multichannel=False))
-    pyramid_ref = tuple(pyramid_gaussian(im2, max_layer=num_levels-1, downscale=2, multichannel=False))
+    pyramid_tem = tuple(pyramid_gaussian(im1, max_layer=num_levels-1, downscale=2, channel_axis=None))
+    pyramid_ref = tuple(pyramid_gaussian(im2, max_layer=num_levels-1, downscale=2, channel_axis=None))
 
     disp_new = None
 
