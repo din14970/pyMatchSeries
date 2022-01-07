@@ -708,15 +708,15 @@ class RegistrationObjectiveFunction:
 
 def main():
     # im1 and im2 are two images (float32 dtype) of the same size assumed to be available
-    im1 = np.zeros((64, 64), dtype=np.float32)
-    im2 = np.zeros((64, 64), dtype=np.float32)
+    im1 = np.zeros((128, 128), dtype=np.float32)
+    im2 = np.zeros((128, 128), dtype=np.float32)
 
-    im1[10:30, 15:45] = 1
-    im2[25:45, 25:55] = 1
+    im1[2*10:2*30, 2*15:2*45] = 1
+    im2[2*25:2*45, 2*25:2*55] = 1
 
     # Regularization parameter
     L = 0.1
-    num_levels = 3
+    num_levels = 5
 
     # Create an image hierarchy for both of our images
     pyramid_tem = tuple(pyramid_gaussian(im1, max_layer=num_levels-1, downscale=2, multichannel=False))
