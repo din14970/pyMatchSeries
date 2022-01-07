@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 from scipy.ndimage import map_coordinates, zoom
 from scipy.optimize import minimize, least_squares
 from scipy.sparse import csr_matrix, vstack, hstack
+from skimage.transform import pyramid_gaussian, resize
+
 
 class InterpolationBase:
     def __init__(self, data):
@@ -712,32 +714,43 @@ def main():
     im1[10:30, 15:45] = 1
     im2[25:45, 25:55] = 1
 
-    # Downscale the images to have a very coarse toy registration problem.
-    im1 = zoom(im1, 0.125)
-    im2 = zoom(im2, 0.125)
-
     # Regularization parameter
     L = 0.1
+    num_levels = 3
 
-    objective = RegistrationObjectiveFunction(im1, im2, L)
+    # Create an image hierarchy for both of our images
+    pyramid_tem = tuple(pyramid_gaussian(im1, max_layer=num_levels-1, downscale=2, multichannel=False))
+    pyramid_ref = tuple(pyramid_gaussian(im2, max_layer=num_levels-1, downscale=2, multichannel=False))
 
-    # -------------------------------------------------------------
-    # initialize displacement as zero
-    disp = np.zeros_like(objective.identity)
+    disp_new = None
 
-    res = least_squares(objective.evaluate_residual, disp.ravel(), jac=objective.evaluate_residual_gradient, method='trf', verbose=2)
-    # res = minimize(objective.evaluate_energy, disp.ravel(), jac=objective.evaluate_energy_gradient, method="BFGS", options={"disp": True, "maxiter": 1000})
-    disp_new = res.x.reshape(disp.shape)
+    for i in reversed(range(num_levels)):
+        image_tem = pyramid_tem[i]
+        image_ref = pyramid_ref[i]
 
-    mpl.rcParams["image.cmap"] = "gray"
-    _, ax = plt.subplots(nrows=1, ncols=3)
-    ax[0].title.set_text("im1")
-    ax[0].imshow(im1)
-    ax[1].title.set_text("im2")
-    ax[1].imshow(im2)
-    ax[2].title.set_text("im1(phi)")
-    ax[2].imshow(map_coordinates(im1, [disp_new[0, ...]/objective.grid_h+objective.identity[0, ...], disp_new[1, ...]/objective.grid_h+objective.identity[1, ...]]))
-    plt.show()
+        objective = RegistrationObjectiveFunction(image_tem, image_ref, L)
+
+        # initialize displacement as zero if we no guess from a previous level
+        if disp_new is None:
+            disp = np.zeros_like(objective.identity)
+        # initialize displacement by upsampling the one from the previous level
+        else:
+            disp = np.stack([resize(disp_new[0, ...], image_tem.shape), resize(disp_new[1, ...], image_tem.shape)])
+
+        res = least_squares(objective.evaluate_residual, disp.ravel(), jac=objective.evaluate_residual_gradient, method='trf', verbose=2)
+        # res = minimize(objective.evaluate_energy, disp.ravel(), jac=objective.evaluate_energy_gradient, method="BFGS", options={"disp": True, "maxiter": 1000})
+        disp_new = res.x.reshape(disp.shape)
+
+        mpl.rcParams["image.cmap"] = "gray"
+        _, ax = plt.subplots(nrows=1, ncols=3)
+        ax[0].title.set_text("tem")
+        ax[0].imshow(image_tem)
+        ax[1].title.set_text("ref")
+        ax[1].imshow(image_ref)
+        ax[2].title.set_text("tem(phi)")
+        ax[2].imshow(map_coordinates(image_tem, [disp_new[0, ...]/objective.grid_h+objective.identity[0, ...], disp_new[1, ...]/objective.grid_h+objective.identity[1, ...]]))
+        plt.suptitle(f"Result for resolution {image_tem.shape}")
+        plt.show()
 
 
 if __name__ == "__main__":
