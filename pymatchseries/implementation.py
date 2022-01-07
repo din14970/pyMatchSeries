@@ -7,6 +7,8 @@ from scipy.ndimage import map_coordinates, zoom
 from scipy.optimize import minimize, least_squares
 from scipy.sparse import csr_matrix, vstack, hstack
 from skimage.transform import pyramid_gaussian, resize
+from tqdm import tqdm
+import sparseqr
 
 
 class InterpolationBase:
@@ -706,6 +708,80 @@ class RegistrationObjectiveFunction:
         return 2*mat.T*res.ravel()
 
 
+def getTimestepWidthWithSimpleLineSearch(E, direction, x, start_tau=1, tau_min=2**-30):
+    # extreme simple timestep width control, just ensures, that fnew < fnew
+
+    tau = start_tau
+
+    e = E(x)
+    eNew = E(x+tau*direction)
+
+    while ((eNew >= e) and (tau >= tau_min)):
+        tau = tau * 0.5
+        eNew = E(x+tau*direction)
+
+    # No energy descent for tau >= tauMin, so we don't want the step to be done.
+    # The stopping criterion also handles this case.
+    if (tau < tau_min):
+        tau = 0
+
+    return tau
+
+
+def GaussNewtonAlgorithm(x0, F, DF, maxIter=50, stopEpsilon=0):
+    x = x0.copy()
+    f = F(x)
+    fNormSqrOld = np.linalg.norm(f)**2
+    print("Initial fNormSqr {:#.6g}".format(fNormSqrOld))
+    tau = 1
+
+    # use tqdm to show a progress bar
+    i_bar = tqdm(range(maxIter))
+    for i in i_bar:
+        matDF = DF(x)
+        # from scipy.linalg import qr, solve, solve_triangular
+        # Q, R = np.linalg.qr(matDF, mode='reduced')
+        # b = np.matmul(Q.T, f)
+        # direction = solve_triangular(R, b, lower=False)
+        # direction = np.linalg.lstsq(matDF.todense(), f, rcond=None)[0]
+
+        # Solve an overdetermined linear system  A x = b  in the least-squares sense
+        direction = sparseqr.solve( matDF, f, tolerance = 0 )
+
+        if not np.all(np.isfinite(direction)):
+            print("Error: lstsq failed.")
+
+        x -= direction
+
+        f = F(x)
+        fNormSqr = np.linalg.norm(f)**2
+
+        # If the target functional did not decrease with the update, try to find a smaller step
+        # so that it does. This step size control is extremely simple and not very efficient, but
+        # it's certainly better than letting the algorithm diverge.
+        if fNormSqr >= fNormSqrOld:
+            x += direction
+            direction *= -1
+            # getTimestepWidthWithSimpleLineSearch doesn't support "widening", so let it start with 2*tau.
+            tau = getTimestepWidthWithSimpleLineSearch(
+                lambda v: np.linalg.norm(F(v))**2, direction, x, start_tau=min(2*tau, 1))
+            x += tau*direction
+            f = F(x)
+            fNormSqr = np.linalg.norm(f)**2
+        else:
+            tau = 1
+
+        i_bar.set_description("\u03C4={:#.2g}, E={:#.5g}, \u0394={:.1e}".format(
+            tau, fNormSqr, fNormSqrOld - fNormSqr))
+
+        if ((fNormSqrOld - fNormSqr)) <= stopEpsilon * fNormSqr or np.isclose(fNormSqr, 0):
+            break
+
+        fNormSqrOld = fNormSqr
+
+    return x
+
+
 def main():
     # im1 and im2 are two images (float32 dtype) of the same size assumed to be available
     im1 = np.zeros((128, 128), dtype=np.float32)
@@ -737,9 +813,10 @@ def main():
         else:
             disp = np.stack([resize(disp_new[0, ...], image_tem.shape), resize(disp_new[1, ...], image_tem.shape)])
 
-        res = least_squares(objective.evaluate_residual, disp.ravel(), jac=objective.evaluate_residual_gradient, method='trf', verbose=2)
+        disp_new = GaussNewtonAlgorithm(disp.ravel(), objective.evaluate_residual, objective.evaluate_residual_gradient).reshape(disp.shape)
+        # res = least_squares(objective.evaluate_residual, disp.ravel(), jac=objective.evaluate_residual_gradient, method='trf', verbose=2)
         # res = minimize(objective.evaluate_energy, disp.ravel(), jac=objective.evaluate_energy_gradient, method="BFGS", options={"disp": True, "maxiter": 1000})
-        disp_new = res.x.reshape(disp.shape)
+        # disp_new = res.x.reshape(disp.shape)
 
         mpl.rcParams["image.cmap"] = "gray"
         _, ax = plt.subplots(nrows=1, ncols=3)
