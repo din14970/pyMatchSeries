@@ -8,7 +8,8 @@ from scipy.optimize import minimize, least_squares
 from scipy.sparse import csr_matrix, vstack, hstack
 from skimage.transform import pyramid_gaussian, resize
 from tqdm import tqdm
-import sparseqr
+from sksparse.cholmod import cholesky_AAt
+# import sparseqr
 
 
 class InterpolationBase:
@@ -746,7 +747,14 @@ def GaussNewtonAlgorithm(x0, F, DF, maxIter=50, stopEpsilon=0):
         # direction = np.linalg.lstsq(matDF.todense(), f, rcond=None)[0]
 
         # Solve an overdetermined linear system  A x = b  in the least-squares sense
-        direction = sparseqr.solve( matDF, f, tolerance = 0 )
+        # direction = sparseqr.solve( matDF, f, tolerance = 0 )
+
+        # Solve the linear least-squares sense using a Cholesky factorization of the normal equations.
+        # Note it would better to directly assemble the transposed instead of assembling and then
+        # transposing.
+        A = matDF.T
+        factor = cholesky_AAt(A)
+        direction = factor.solve_A(A*f)
 
         if not np.all(np.isfinite(direction)):
             print("Error: lstsq failed.")
