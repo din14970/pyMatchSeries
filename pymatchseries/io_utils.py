@@ -21,7 +21,7 @@ def _save_frame_to_file(i, data, folder, prefix, digits, data_format="tiff"):
         pass
     # in case of a weird datatype
     if not (frm.dtype == np.uint16 or frm.dtype == np.uint8):
-        frm = (frm - frm.min()) / (frm.max() - frm.min()) * (2 ** 16 - 1)
+        frm = (frm - frm.min()) / (frm.max() - frm.min()) * (2**16 - 1)
         frm = np.uint16(frm)
     img = Image.fromarray(frm)
     img.save(fp)
