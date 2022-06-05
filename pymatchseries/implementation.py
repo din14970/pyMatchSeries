@@ -1,11 +1,14 @@
 import numpy as np
+from nptyping import NDArray
+from typing import Any, Sequence
+
 from numba import njit, prange, int32, float32
 from numba.experimental import jitclass
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from scipy.ndimage import map_coordinates, zoom
 from scipy.optimize import minimize, least_squares
-from scipy.sparse import csr_matrix, vstack, hstack
+from scipy.sparse import csr_matrix, vstack, hstack, linalg
 from skimage.transform import pyramid_gaussian, resize
 from tqdm import tqdm
 from sksparse.cholmod import cholesky_AAt
@@ -40,6 +43,7 @@ spec = [
     ('data', float32[:, ::1]),
 ]
 
+
 @jitclass(spec)
 class BilinearInterpolation(InterpolationBase):
     __init__base = InterpolationBase.__init__
@@ -55,10 +59,12 @@ class BilinearInterpolation(InterpolationBase):
         for i in range(num_0):
             for j in range(num_1):
                 valid, ind, c = self.get_coeffs(pos[i, j, :])
-                result[i, j] = self.data[ind[0], ind[1]]*(1-c[0])*(1-c[1]) \
-                    + self.data[ind[0]+1, ind[1]]*c[0]*(1-c[1]) \
-                    + self.data[ind[0], ind[1]+1]*(1-c[0])*c[1] \
-                    + self.data[ind[0]+1, ind[1]+1]*c[0]*c[1]
+                result[i, j] = (
+                    self.data[ind[0], ind[1]] * (1 - c[0]) * (1 - c[1])
+                    + self.data[ind[0] + 1, ind[1]] * c[0] * (1 - c[1])
+                    + self.data[ind[0], ind[1] + 1] * (1 - c[0]) * c[1]
+                    + self.data[ind[0] + 1, ind[1] + 1] * c[0] * c[1]
+                )
         return result
 
     def evaluate_gradient(self, pos):
@@ -286,6 +292,16 @@ def _get_qv4(q_coords):
     return (1 - qx) * (1 - qy)
 
 
+def _get_qv(q_coords):
+    """Evaluate the four basis functions at adjacent corners of coordinates (x, y)"""
+    qv = np.empty((4, q_coords.shape[0]), dtype=np.float32)
+    qv[0, :] = _get_qv1(q_coords)
+    qv[1, :] = _get_qv2(q_coords)
+    qv[2, :] = _get_qv3(q_coords)
+    qv[3, :] = _get_qv4(q_coords)
+    return qv
+
+
 def _get_dqv1(q_coords):
     """Basis function gradient evaluated top left of node (d/dx, d/dy)"""
     qx = q_coords[:, 0]
@@ -312,6 +328,16 @@ def _get_dqv4(q_coords):
     qx = q_coords[:, 0]
     qy = q_coords[:, 1]
     return (-(1 - qy), -(1 - qx))
+
+
+def _get_dqv(q_coords):
+    """Evaluate the four basis function gradients at adjacent corners of coordinates (x, y)"""
+    qv = np.empty((4, 2, q_coords.shape[0]), dtype=np.float32)
+    qv[0, :, :] = _get_dqv1(q_coords)
+    qv[1, :, :] = _get_dqv2(q_coords)
+    qv[2, :, :] = _get_dqv3(q_coords)
+    qv[3, :, :] = _get_dqv4(q_coords)
+    return qv
 
 
 @njit
@@ -506,7 +532,10 @@ def _integrate_pd_over_cells_single(quadeval, quad_weights, qv):
 
 
 @njit()
-def ravel_index(pos, shape):
+def ravel_index(pos: Sequence[int], shape: Sequence[int]):
+    """
+    Get the index of an array element if that array was flattened
+    """
     # Adapted from https://stackoverflow.com/a/4271004
     res = 0
     acc = 1
@@ -517,36 +546,34 @@ def ravel_index(pos, shape):
 
 
 @njit()
-def _evaluate_pd_on_quad_points(quadeval, quad_weights_sqrt, qv):
-    num = 4*quadeval.size
+def _evaluate_pd_on_quad_points(quadeval, quad_weights_sqrt, dqv):
+    """
+    """
+    num = 4 * quadeval.size
     data = np.zeros(num, dtype=np.float32)
-    rows = np.zeros(num, dtype=np.float32)
+    rows = np.floor(np.arange(0, quadeval.size, 0.25))
     cols = np.zeros(num, dtype=np.float32)
     idx = 0
-    dof_shape = (quadeval.shape[0]+1, quadeval.shape[1]+1)
+    # original data shape
+    dof_shape = (quadeval.shape[0] + 1, quadeval.shape[1] + 1)
     for i in prange(quadeval.shape[0]):
         for j in range(quadeval.shape[1]):
             for k in range(quadeval.shape[2]):
-                row_index = ravel_index((i, j, k), quadeval.shape)
                 val = quadeval[i, j, k] * quad_weights_sqrt[k]
 
-                data[idx] = val * qv[0, k] 
-                rows[idx] = row_index
+                data[idx] = val * dqv[0, k]
                 cols[idx] = ravel_index((i + 1, j + 1), dof_shape)
                 idx = idx + 1
 
-                data[idx] = val * qv[1, k]
-                rows[idx] = row_index
+                data[idx] = val * dqv[1, k]
                 cols[idx] = ravel_index((i + 1, j), dof_shape)
                 idx = idx + 1
 
-                data[idx] = val * qv[2, k]
-                rows[idx] = row_index
+                data[idx] = val * dqv[2, k]
                 cols[idx] = ravel_index((i, j + 1), dof_shape)
                 idx = idx + 1
 
-                data[idx] = val * qv[3, k]
-                rows[idx] = row_index
+                data[idx] = val * dqv[3, k]
                 cols[idx] = ravel_index((i, j), dof_shape)
                 idx = idx + 1
 
@@ -635,57 +662,74 @@ def residual_gradient(
 
 
 class RegistrationObjectiveFunction:
-    def __init__(self, im1, im2, L):
+
+    # Constants, only calculate once on module import
+    Q_POINTS = _get_gauss_quad_points_3()
+    Q_WEIGHTS = _get_gauss_quad_weights_3()
+    NODE_WEIGHTS = _get_node_weights(Q_POINTS)
+    DX_NODE_WEIGHTS = _get_dx_node_weights(Q_POINTS)
+    DY_NODE_WEIGHTS = _get_dy_node_weights(Q_POINTS)
+    QV = _get_qv(Q_POINTS)
+    DQV = _get_dqv(Q_POINTS)
+
+    def __init__(
+        self,
+        im1: NDArray[(Any, Any), Any],
+        im2: NDArray[(Any, Any), Any],
+        L: float,
+    ):
         self.grid_shape = im1.shape
         self.grid_h = 1 / (max(self.grid_shape) - 1)
 
         # -------------------------------------------------------------
-        # Quadrature point values that are used throughout to evaluate functions and derivatives at the quad points
-        q_points = _get_gauss_quad_points_3()
-        self.node_weights = _get_node_weights(q_points)
+        # Quadrature point values that are used throughout to evaluate
+        # functions and derivatives at the quad points
+        self.node_weights = self.NODE_WEIGHTS
         # By scaling quadrature weights with the element volume, we normalize the integration domain so that
         # its longest axis has length 1.
-        quad_weights = (self.grid_h**2) * _get_gauss_quad_weights_3()
+        self.quad_weights = (self.grid_h ** 2) * self.Q_WEIGHTS
         # By decreasing the size of the elements, the size of the derivative increases.
-        node_weights_dx = _get_dx_node_weights(q_points)/self.grid_h
-        node_weights_dy = _get_dy_node_weights(q_points)/self.grid_h
+        self.node_weights_dx = self.DX_NODE_WEIGHTS / self.grid_h
+        self.node_weights_dy = self.DY_NODE_WEIGHTS / self.grid_h
 
         # -------------------------------------------------------------
         # Evaluation of basis function and derivative of basis function at quadrature points in 4 cells around a node
-        self.qv = np.array([_get_qv1(q_points), _get_qv2(q_points), _get_qv3(q_points), _get_qv4(q_points)])
+        self.qv = self.QV
         # By decreasing the size of the elements, the size of the derivative increases.
-        dqv = np.array([_get_dqv1(q_points), _get_dqv2(q_points), _get_dqv3(q_points), _get_dqv4(q_points)])/self.grid_h
-        dqvx = dqv[:, 0, :]
-        dqvy = dqv[:, 1, :]
+        dqv = self.DQV/self.grid_h
+        self.dqvx = dqv[:, 0, :]
+        self.dqvy = dqv[:, 1, :]
 
         self.im1_interp = BilinearInterpolation(im1)
         self.im2 = im2
-        self.quad_weights_sqrt = np.sqrt(quad_weights)
+        self.quad_weights_sqrt = np.sqrt(self.quad_weights)
         self.L_sqrt = np.sqrt(L)
 
-        x = np.arange(im1.shape[1], dtype=np.float32)
-        y = np.arange(im1.shape[0], dtype=np.float32)
-        identity_x, identity_y = np.meshgrid(x, y)
-        self.identity = np.stack([identity_y, identity_x])
+        self.identity = np.mgrid[0.:im1.shape[0], 0.:im1.shape[1]].astype(np.float32)
 
         # The following only need to be stored for the "residual-free" implementation of the energy and its gradient
-        self.node_weights_dx = node_weights_dx
-        self.node_weights_dy = node_weights_dy
-        self.quad_weights = quad_weights
-        self.dqvx = dqvx
-        self.dqvy = dqvy
         self.L = L
 
         # The derivative of the regularizer is a constant matrix that we precompute here.
-        ones = np.ones((self.grid_shape[0] - 1, self.grid_shape[1] - 1, self.node_weights.shape[1]), dtype=np.float32)
-        data_reg_x, rows_reg_x, cols_reg_x = _evaluate_pd_on_quad_points(self.L_sqrt * ones, self.quad_weights_sqrt, dqvx)
-        data_reg_y, rows_reg_y, cols_reg_y = _evaluate_pd_on_quad_points(self.L_sqrt * ones, self.quad_weights_sqrt, dqvy)
-        mat_reg = csr_matrix((np.concatenate((data_reg_x, data_reg_y)),
-                            (np.concatenate((rows_reg_x, rows_reg_y+ones.size)),
-                            np.concatenate((cols_reg_x, cols_reg_y)))
-                            ), shape=(2*ones.size, self.im2.size))
+        quadeval = np.full(
+            (self.grid_shape[0] - 1, self.grid_shape[1] - 1, self.node_weights.shape[1]),
+            fill_value=self.L_sqrt,
+            dtype=np.float32
+        )
+        data_reg_x, rows_reg_x, cols_reg_x = _evaluate_pd_on_quad_points(quadeval, self.quad_weights_sqrt, self.dqvx)
+        data_reg_y, rows_reg_y, cols_reg_y = _evaluate_pd_on_quad_points(quadeval, self.quad_weights_sqrt, self.dqvy)
+        mat_reg = csr_matrix(
+            (
+                np.concatenate((data_reg_x, data_reg_y)),
+                (
+                    np.concatenate((rows_reg_x, rows_reg_y + quadeval.size)),
+                    np.concatenate((cols_reg_x, cols_reg_y)),
+                ),
+            ),
+            shape=(2 * quadeval.size, self.im2.size),
+        )
 
-        mat_zero = csr_matrix((2*ones.size, self.im2.size))
+        mat_zero = csr_matrix((2*quadeval.size, self.im2.size))
         self.mat_reg_full = vstack([hstack([mat_zero, mat_reg]), hstack([mat_reg, mat_zero])])
 
     def evaluate_residual(self, disp_vec):
@@ -740,15 +784,6 @@ def GaussNewtonAlgorithm(x0, F, DF, maxIter=50, stopEpsilon=0):
     i_bar = tqdm(range(maxIter))
     for i in i_bar:
         matDF = DF(x)
-        # from scipy.linalg import qr, solve, solve_triangular
-        # Q, R = np.linalg.qr(matDF, mode='reduced')
-        # b = np.matmul(Q.T, f)
-        # direction = solve_triangular(R, b, lower=False)
-        # direction = np.linalg.lstsq(matDF.todense(), f, rcond=None)[0]
-
-        # Solve an overdetermined linear system  A x = b  in the least-squares sense
-        # direction = sparseqr.solve( matDF, f, tolerance = 0 )
-
         # Solve the linear least-squares sense using a Cholesky factorization of the normal equations.
         # Note it would better to directly assemble the transposed instead of assembling and then
         # transposing.
@@ -784,7 +819,6 @@ def GaussNewtonAlgorithm(x0, F, DF, maxIter=50, stopEpsilon=0):
 
         if ((fNormSqrOld - fNormSqr)) <= stopEpsilon * fNormSqr or np.isclose(fNormSqr, 0):
             break
-
         fNormSqrOld = fNormSqr
 
     return x
@@ -821,8 +855,11 @@ def main():
         else:
             disp = np.stack([resize(disp_new[0, ...], image_tem.shape), resize(disp_new[1, ...], image_tem.shape)])
 
-        disp_new = GaussNewtonAlgorithm(disp.ravel(), objective.evaluate_residual, objective.evaluate_residual_gradient).reshape(disp.shape)
-        # res = least_squares(objective.evaluate_residual, disp.ravel(), jac=objective.evaluate_residual_gradient, method='trf', verbose=2)
+        disp_new = GaussNewtonAlgorithm(
+            disp.ravel(),
+            objective.evaluate_residual,
+            objective.evaluate_residual_gradient
+        ).reshape(disp.shape)
         # res = minimize(objective.evaluate_energy, disp.ravel(), jac=objective.evaluate_energy_gradient, method="BFGS", options={"disp": True, "maxiter": 1000})
         # disp_new = res.x.reshape(disp.shape)
 
@@ -833,7 +870,13 @@ def main():
         ax[1].title.set_text("ref")
         ax[1].imshow(image_ref)
         ax[2].title.set_text("tem(phi)")
-        ax[2].imshow(map_coordinates(image_tem, [disp_new[0, ...]/objective.grid_h+objective.identity[0, ...], disp_new[1, ...]/objective.grid_h+objective.identity[1, ...]]))
+        ax[2].imshow(
+            map_coordinates(
+                image_tem,
+                [disp_new[0, ...]/objective.grid_h+objective.identity[0, ...],
+                 disp_new[1, ...]/objective.grid_h+objective.identity[1, ...]]
+            )
+        )
         plt.suptitle(f"Result for resolution {image_tem.shape}")
         plt.show()
 
