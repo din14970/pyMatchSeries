@@ -114,10 +114,11 @@ def _get_interpolation_parameters(
     coordinate: float,
     axis_size: int,
 ) -> Tuple[bool, int, float]:
-    reference_gridpoint = int(coordinate)
-    weight = coordinate - reference_gridpoint
-    is_valid = True
-    if coordinate < 0:
+    if coordinate >= 0 and coordinate < axis_size - 1:
+        is_valid = True
+        reference_gridpoint = int(coordinate)
+        weight = coordinate - reference_gridpoint
+    elif coordinate < 0:
         is_valid = False
         reference_gridpoint = 0
         weight = 0.
@@ -126,6 +127,7 @@ def _get_interpolation_parameters(
         reference_gridpoint = axis_size - 2
         weight = 1.
     elif coordinate == axis_size - 1:
+        is_valid = True
         reference_gridpoint = axis_size - 2
         weight = 1.
     return is_valid, reference_gridpoint, weight
