@@ -6,16 +6,16 @@ from tqdm import tqdm
 
 
 import numpy as np
-from pymatchseries.utils import Matrix, DenseArrayType
+from pymatchseries.utils import Matrix, DenseArrayType, ArrayType
 
 
 logger = logging.getLogger(__name__)
 
 
 def root_gauss_newton(
-    F: Callable,
+    F: Callable[[DenseArrayType], DenseArrayType],
     x0: DenseArrayType,
-    DF: Callable,
+    DF: Callable[[DenseArrayType], ArrayType],
     max_iterations: int = 50,
     stop_epsilon: float = 0.,
     start_step: float = 1.,
@@ -110,7 +110,7 @@ def root_gauss_newton(
 
 
 def _get_stepsize(
-    F: Callable,
+    F: Callable[[DenseArrayType], DenseArrayType],
     x: DenseArrayType,
     dx: DenseArrayType,
     start_step: float = 1.,

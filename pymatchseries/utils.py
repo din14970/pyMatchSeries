@@ -18,8 +18,19 @@ except ImportError:
     CUPY_IS_INSTALLED = False
 
 
-ArrayType = TypeVar(sparse.spmatrix, csparse.spmatrix, np.ndarray, cp.ndarray)
-DenseArrayType = TypeVar(np.ndarray, cp.ndarray)
+ArrayType = TypeVar("ArrayType", sparse.spmatrix, csparse.spmatrix, np.ndarray, cp.ndarray)
+DenseArrayType = TypeVar("DenseArrayType", np.ndarray, cp.ndarray)
+SparseMatrixType = TypeVar("SparseMatrixType", sparse.spmatrix, csparse.spmatrix)
+
+
+def get_dispatcher(array: DenseArrayType) -> ModuleType:
+    """Returns the correct dispatcher to work with an array"""
+    if CUPY_IS_INSTALLED and isinstance(array, cp.ndarray):
+        return cp
+    elif isinstance(array, np.ndarray):
+        return np
+    else:
+        raise ValueError(f"Array type is {type(array)}, must be {ArrayType}.")
 
 
 class Matrix:
@@ -38,7 +49,7 @@ class Matrix:
 
     @property
     def module(self) -> ModuleType:
-        raise NotImplementedError
+        raise NotImplementedError("The array module could not be determined")
 
     @classmethod
     def new(cls, matrix: ArrayType) -> Matrix:
@@ -49,10 +60,10 @@ class Matrix:
     def get_matrix_type(cls, matrix: ArrayType) -> Type[Matrix]:
         if CUPY_IS_INSTALLED and isinstance(matrix, cp.ndarray):
             return CupyMatrix
-        elif CUPY_IS_INSTALLED and isinstance(matrix, csparse.spmatrix):
-            return SparseCupyMatrix
         elif isinstance(matrix, np.ndarray):
             return NumpyMatrix
+        elif CUPY_IS_INSTALLED and isinstance(matrix, csparse.spmatrix):
+            return SparseCupyMatrix
         elif isinstance(matrix, sparse.spmatrix):
             return SparseNumpyMatrix
         else:
@@ -71,10 +82,10 @@ class Matrix:
         return self
 
     def solve(self, b: ArrayType) -> ArrayType:
-        raise NotImplementedError
+        raise NotImplementedError("No solving method is implemented")
 
     def solve_lstsq(self, b: ArrayType) -> ArrayType:
-        raise NotImplementedError
+        raise NotImplementedError("No least squares method is implemented")
 
 
 class NumpyMatrix(Matrix):

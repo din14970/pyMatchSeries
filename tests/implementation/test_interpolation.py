@@ -21,7 +21,7 @@ def _get_image_and_coords(dispatcher: ModuleType = np):
             [1, 2, 1, 0, 5],
         ]
     ).astype(dispatcher.float32)
-    coordinates = dispatcher.mgrid[0 : image.shape[0], 0 : image.shape[1]]
+    coordinates = dispatcher.mgrid[0: image.shape[0], 0: image.shape[1]]
     coordinates = dispatcher.moveaxis(coordinates, 0, -1)
     coordinates = coordinates.astype(dispatcher.float32)
     jitter = dispatcher.random.rand(*coordinates.shape) - 0.5
