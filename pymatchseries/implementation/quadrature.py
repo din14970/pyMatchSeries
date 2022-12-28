@@ -31,6 +31,7 @@ class Quadrature2D:
             )
         self.grid_shape = grid_shape
         self.dispatcher = dispatcher
+        # Factor to rescale integration domain so that longest dimension is 1
         self.grid_scaling: float = 1 / (max(grid_shape) - 1)
         if self.dispatcher == np:
             self.evaluate_function = evaluate_at_quad_points_cpu
@@ -93,22 +94,27 @@ class Quadrature2D:
 
     @cached_property
     def quadrature_points(self) -> DenseArrayType:
+        """Quadrature point x, y coordinates. Array shape is (K, 2)."""
         return self._points
 
     @cached_property
     def quadrature_point_weights(self) -> DenseArrayType:
+        """Quadrature point weights. Array shape is (K,)."""
         return self._weight * (self.grid_scaling ** 2)
 
     @cached_property
     def quadrature_point_weights_sqrt(self) -> DenseArrayType:
+        """Root of quadrature point weights. Array shape is (K,)."""
         return self.dispatcher.sqrt(self.quadrature_point_weights)
 
     @property
     def quadrature_points_x_coordinate(self) -> DenseArrayType:
+        """x coordinate of quadrature points. Array shape is (K,)."""
         return self.quadrature_points[:, 0]
 
     @property
     def quadrature_points_y_coordinate(self) -> DenseArrayType:
+        """y coordinate of quadrature points. Array shape is (K,)."""
         return self.quadrature_points[:, 1]
 
     @property
@@ -117,10 +123,24 @@ class Quadrature2D:
 
     @cached_property
     def node_weights(self) -> DenseArrayType:
-        """
-        The weights w_i that each surrounding node contributes to evaluating
+        """The weights w_i that each surrounding node contributes to evaluating
         the function f at the quadrature points at x, y, i.e.:
-        `f(x,y) = w_0 * f_00 + w_1 * f_01 + w_2 * f_10 + w_4 * f_11.`
+        `f(x, y) = w_0 * f_00 + w_1 * f_01 + w_2 * f_10 + w_4 * f_11.`
+
+        Returns
+        -------
+        weights
+            Weights of each node for each quadrature point. Array of shape
+            (4, K) of float32, where K is the number of quadrature points in
+            a cell.
+
+        Notes
+        -----
+        We assume the following order of nodes:
+        * 00 = top left
+        * 01 = top right
+        * 10 = bottom left
+        * 11 = bottom right
         """
         qx = self.quadrature_points_x_coordinate
         qy = self.quadrature_points_y_coordinate
@@ -136,9 +156,51 @@ class Quadrature2D:
         ])
 
     @cached_property
-    def dx_node_weights(self) -> DenseArrayType:
+    def basis_f_at_points(self) -> DenseArrayType:
+        """The value of the 4 basis functions around a cell at each of the
+        quadrature points in the cell.
+
+        Returns
+        -------
+        values
+            Value of 4 basis functions. Array of shape (4, K) of float32,
+            where K is the number of quadrature points in a cell.
+
+        Notes
+        -----
+        We assume the following order of nodes:
+        * values[0] = top left
+        * values[1] = top right
+        * values[2] = bottom left
+        * values[3] = bottom right
         """
-        The weights to evaluate d/dx * f at x, y coordinates
+        qx = self.quadrature_points_x_coordinate
+        qy = self.quadrature_points_y_coordinate
+        one_minus_qx = 1 - qx
+        one_minus_qy = 1 - qy
+        return self.dispatcher.vstack([
+            qx * qy,
+            one_minus_qx * qy,
+            qx * one_minus_qy,
+            one_minus_qx * one_minus_qy,
+        ])
+
+    @cached_property
+    def dx_node_weights(self) -> DenseArrayType:
+        """The weights to evaluate d/dx * f(x, y) at the quadrature points
+
+        Returns
+        -------
+        weights
+            Weights of each node for each quadrature point. Array of shape
+            (4, K) of float32, where K is the number of quadrature points in
+            a cell.
+
+        Notes
+        -----
+        * see also node weights
+        * since cells are rescaled (see quadrature point weights), gradients
+        are larger (scaled by same factor)
         """
         qy = self.quadrature_points_y_coordinate
         one_minus_qy = 1 - qy
@@ -148,14 +210,82 @@ class Quadrature2D:
 
     @cached_property
     def dy_node_weights(self) -> DenseArrayType:
-        """
-        The weights to evaluate d/dy * f at x, y coordinates
+        """The weights to evaluate d/dy * f(x, y) at the quadrature points
+
+        Returns
+        -------
+        weights
+            Weights of each node for each quadrature point. Array of shape
+            (4, K) of float32, where K is the number of quadrature points in
+            a cell.
+
+        Notes
+        -----
+        * see also node weights
+        * since cells are rescaled (see quadrature point weights), gradients
+        are larger (scaled by same factor)
         """
         qx = self.quadrature_points_x_coordinate
         one_minus_qx = 1 - qx
         return self.dispatcher.vstack(
             [-one_minus_qx, -qx, one_minus_qx, qx]
         ) / self.grid_scaling
+
+    @cached_property
+    def basis_dfx_at_points(self) -> DenseArrayType:
+        """d/dx of the 4 basis functions around a cell at each of the
+        quadrature points in the cell.
+
+        Returns
+        -------
+        values
+            d/dx of 4 basis functions. Array of shape (4, K) of float32,
+            where K is the number of quadrature points in a cell.
+
+        Notes
+        -----
+        We assume the following order of nodes:
+        * values[0] = top left
+        * values[1] = top right
+        * values[2] = bottom left
+        * values[3] = bottom right
+        """
+        qy = self.quadrature_points_y_coordinate
+        one_minus_qy = 1 - qy
+        return self.dispatcher.vstack([
+            qy,
+            -qy,
+            one_minus_qy,
+            -one_minus_qy,
+        ]) / self.grid_scaling
+
+    @cached_property
+    def basis_dfy_at_points(self) -> DenseArrayType:
+        """d/dy of the 4 basis functions around a cell at each of the
+        quadrature points in the cell.
+
+        Returns
+        -------
+        values
+            d/dy of 4 basis functions. Array of shape (4, K) of float32,
+            where K is the number of quadrature points in a cell.
+
+        Notes
+        -----
+        We assume the following order of nodes:
+        * values[0] = top left
+        * values[1] = top right
+        * values[2] = bottom left
+        * values[3] = bottom right
+        """
+        qx = self.quadrature_points_x_coordinate
+        one_minus_qx = 1 - qx
+        return self.dispatcher.vstack([
+            qx,
+            one_minus_qx,
+            -qx,
+            -one_minus_qx,
+        ]) / self.grid_scaling
 
     @classmethod
     def _get_gauss_quad_points_2(

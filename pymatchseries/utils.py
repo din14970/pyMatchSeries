@@ -13,7 +13,7 @@ try:
     CUPY_IS_INSTALLED = True
 except ImportError:
     cp = None
-    cpsparse = None
+    csparse = None
     clinalg = None
     CUPY_IS_INSTALLED = False
 
@@ -31,6 +31,15 @@ def get_dispatcher(array: DenseArrayType) -> ModuleType:
         return np
     else:
         raise ValueError(f"Array type is {type(array)}, must be {ArrayType}.")
+
+
+def get_sparse_module(dispatcher: ModuleType) -> ModuleType:
+    if dispatcher == cp:
+        return csparse
+    elif dispatcher == np:
+        return sparse
+    else:
+        raise ValueError("Array must be numpy or cupy array")
 
 
 class Matrix:
