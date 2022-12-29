@@ -4,6 +4,7 @@ from numba import cuda, float32
 
 
 TPB = 16
+TPB1 = TPB + 1
 
 
 def interpolate_gpu(
@@ -249,7 +250,7 @@ def _evaluate_at_quad_points_kernel(
 
     # all threads require the same node weights, and often same image pixels
     # TODO: also put node weights into a shared array
-    s_array = cuda.shared.array(shape=(TPB + 1, TPB + 1), dtype=float32)
+    s_array = cuda.shared.array(shape=(TPB1, TPB1), dtype=float32)
 
     if r >= output.shape[0] or c >= output.shape[1]:
         return

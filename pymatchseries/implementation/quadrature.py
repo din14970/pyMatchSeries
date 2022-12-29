@@ -1,5 +1,6 @@
 from typing import Tuple
 from types import ModuleType
+from math import prod, sqrt
 
 import numpy as np
 from numba import njit, prange
@@ -119,7 +120,22 @@ class Quadrature2D:
 
     @property
     def number_of_quadrature_points(self) -> int:
+        """Number of quadrature points in a cell"""
         return self.quadrature_points.shape[0]
+
+    @cached_property
+    def cell_grid_shape(self) -> Tuple[int, int]:
+        """((N-1), (M-1), K)"""
+        return (
+            self.grid_shape[0] - 1,
+            self.grid_shape[1] - 1,
+            self.number_of_quadrature_points,
+        )
+
+    @cached_property
+    def total_number_of_quadrature_points(self) -> int:
+        """Number of quadrature points over all cells"""
+        return prod(self.cell_grid_shape)
 
     @cached_property
     def node_weights(self) -> DenseArrayType:
@@ -295,7 +311,7 @@ class Quadrature2D:
         """
         Get the x, y coordinates of the Gaussian quadrature points with 4 points
         """
-        p = 1 / dispatcher.sqrt(3) / 2
+        p = 1 / sqrt(3) / 2
         quads = dispatcher.array(
             [
                 [-p, -p],
@@ -326,7 +342,7 @@ class Quadrature2D:
         """
         Get the x, y coordinates of the Gaussian quadrature points with 9 points
         """
-        p = dispatcher.sqrt(3 / 5) / 2
+        p = sqrt(3 / 5) / 2
         quads = dispatcher.array(
             [
                 [-p, -p],

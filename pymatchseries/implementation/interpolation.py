@@ -30,7 +30,7 @@ class BilinearInterpolation2D:
                 interpolate_gradient_gpu,
             )
             self.evaluate_function = interpolate_gpu
-            self.evaluate_function = interpolate_gradient_gpu
+            self.evaluate_gradient_function = interpolate_gradient_gpu
         else:
             raise ValueError("Unexpected object type for image")
 
@@ -42,12 +42,19 @@ class BilinearInterpolation2D:
         coordinates: (R, C, 2) array of float32
             The coordinates at which to interpolate. (R, C, 0) represent the y
             coordinates in the image, (R, C, 1) represent the x coordinate in
-            the image
+            the image.
 
         Returns
         -------
         values: (R, C) array of float32
             The interpolated values for all R, C coordinates
+
+        Notes
+        -----
+        R and C are actually arbitrary and serve to define how the problem is
+        parallelized. In the CPU implementation, a new thread is launched for
+        each R. In the GPU implementation, the grid is defined based on R and
+        C.
         """
         return self.evaluate_function(self.image, coordinates)
 
@@ -59,13 +66,21 @@ class BilinearInterpolation2D:
         coordinates: (R, C, 2) array of float32
             The coordinates at which to interpolate. (R, C, 0) represent the y
             coordinates in the image, (R, C, 1) represent the x coordinate in
-            the image
+            the image. R and C are actually arbitrary and serve to define how
+            the problem is parallelized.
 
         Returns
         -------
         gradient: (R, C, 2) array of float32
             The interpolated gradients at all R, C coordinates. (R, C, 0) is
             the y coordinate of the gradient, (R, C, 1) is the x coordinate.
+
+        Notes
+        -----
+        R and C are actually arbitrary and serve to define how the problem is
+        parallelized. In the CPU implementation, a new thread is launched for
+        each R. In the GPU implementation, the grid is defined based on R and
+        C.
         """
         return self.evaluate_gradient_function(self.image, coordinates)
 
@@ -126,7 +141,7 @@ def interpolate_gradient_cpu(
     coordinates: (R, C, 2) array of float32
         The coordinates at which to interpolate. (R, C, 0) represent the y
         coordinates in the image, (R, C, 1) represent the x coordinate in the
-        image
+        image.
 
     Returns
     -------
