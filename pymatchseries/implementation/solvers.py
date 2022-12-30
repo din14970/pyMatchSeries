@@ -144,7 +144,7 @@ def _get_stepsize(
     step = start_step
 
     error = error_function(x)
-    updated_error = error(x + step * dx)
+    updated_error = error_function(x + step * dx)
 
     while (updated_error >= error) and (step >= min_step):
         step *= 0.5
