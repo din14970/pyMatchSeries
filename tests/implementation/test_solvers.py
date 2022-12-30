@@ -1,10 +1,20 @@
+from typing import Tuple
+import pytest
+from types import ModuleType
 import numpy as np
 from pymatchseries.implementation.objective_functions import RegistrationObjectiveFunction
 from pymatchseries.implementation.solvers import root_gauss_newton
 from skimage.transform import pyramid_gaussian
+from pymatchseries.utils import DenseArrayType, cp, CUPY_IS_INSTALLED
 
 
-def test_root_gauss_newton() -> None:
+if CUPY_IS_INSTALLED:
+    params = [np, cp]
+else:
+    params = [np]
+
+
+def _setup(dp: ModuleType = np) -> Tuple[RegistrationObjectiveFunction, DenseArrayType]:
     im1 = np.zeros((128, 128), dtype=np.float32)
     im2 = np.zeros((128, 128), dtype=np.float32)
 
@@ -24,14 +34,26 @@ def test_root_gauss_newton() -> None:
     # Regularization parameter
     L = 0.1
 
+    image_def = pyramid_tem[-1]
+    image_ref = pyramid_ref[-1]
+
+    if dp != np:
+        image_def = cp.asarray(image_def)
+        image_ref = cp.asarray(image_ref)
+
     objective = RegistrationObjectiveFunction(
-        pyramid_tem[-1],
-        pyramid_ref[-1],
+        image_ref,
+        image_def,
         L,
     )
 
-    disp = np.zeros_like(objective.identity)
+    disp = dp.zeros_like(objective.identity)
+    return objective, disp
 
+
+@pytest.mark.parametrize("dp", params)
+def test_root_gauss_newton(dp: ModuleType) -> None:
+    objective, disp = _setup(dp)
     disp_new = root_gauss_newton(
         objective.evaluate_residual,
         disp.ravel(),

@@ -9,7 +9,7 @@ import scipy.sparse as sparse
 try:
     import cupy as cp
     import cupyx.scipy.sparse as csparse
-    import cupyx.scipy.linalg as clinalg
+    import cupyx.scipy.sparse.linalg as clinalg
     CUPY_IS_INSTALLED = True
 except ImportError:
     cp = None
