@@ -1,4 +1,5 @@
 from typing import Tuple
+
 import cupy as cp
 from numba import cuda, float32
 

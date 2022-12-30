@@ -1,30 +1,59 @@
 import numpy as np
-from types import ModuleType
 from pymatchseries.implementation.interpolation import (
     interpolate_cpu,
     interpolate_gradient_cpu,
 )
-from pymatchseries.implementation.cuda_kernels import (
-    cp,
-    interpolate_gpu,
-    interpolate_gradient_gpu,
-)
 
 
-def _get_image_and_coords(dispatcher: ModuleType = np):
-    dispatcher.random.seed(42)
-    image = dispatcher.array(
+RTOL = 1e-6
+
+
+def _get_image_and_coords():
+    np.random.seed(42)
+    image = np.array(
         [
             [2, 5, 7, 8, 1],
             [3, 1, 2, 0, 0],
             [1, 1, 0, 4, 6],
             [1, 2, 1, 0, 5],
         ]
-    ).astype(dispatcher.float32)
-    coordinates = dispatcher.mgrid[0: image.shape[0], 0: image.shape[1]]
-    coordinates = dispatcher.moveaxis(coordinates, 0, -1)
-    coordinates = coordinates.astype(dispatcher.float32)
-    jitter = dispatcher.random.rand(*coordinates.shape) - 0.5
+    ).astype(np.float32)
+    coordinates = np.mgrid[0 : image.shape[0], 0 : image.shape[1]]
+    coordinates = np.moveaxis(coordinates, 0, -1)
+    coordinates = coordinates.astype(np.float32)
+    # random array to be added to coordinates
+    jitter = np.array(
+        [
+            [
+                [-0.12545988, 0.45071431],
+                [0.23199394, 0.09865848],
+                [-0.34398136, -0.34400548],
+                [-0.44191639, 0.36617615],
+                [0.10111501, 0.20807258],
+            ],
+            [
+                [-0.47941551, 0.46990985],
+                [0.33244264, -0.28766089],
+                [-0.31817503, -0.31659549],
+                [-0.19575776, 0.02475643],
+                [-0.06805498, -0.20877086],
+            ],
+            [
+                [0.11185289, -0.36050614],
+                [-0.20785535, -0.13363816],
+                [-0.04393002, 0.28517596],
+                [-0.30032622, 0.01423444],
+                [0.09241457, -0.45354959],
+            ],
+            [
+                [0.10754485, -0.32947588],
+                [-0.43494841, 0.44888554],
+                [0.46563203, 0.30839735],
+                [-0.19538623, -0.40232789],
+                [0.18423303, -0.05984751],
+            ],
+        ]
+    )
     coordinates_2 = coordinates + jitter
     return (
         image,
@@ -36,7 +65,7 @@ def _get_image_and_coords(dispatcher: ModuleType = np):
 def test_interpolate_cpu():
     image, coordinates, coordinates_2 = _get_image_and_coords()
     result = interpolate_cpu(image, coordinates)
-    np.testing.assert_allclose(image, result)
+
     result_2 = interpolate_cpu(image, coordinates_2)
     expected = np.array(
         [
@@ -46,7 +75,9 @@ def test_interpolate_cpu():
             [1.0, 1.116166, 0.69160265, 0.79082614, 4.7007623],
         ]
     )
-    np.testing.assert_allclose(expected, result_2)
+
+    np.testing.assert_allclose(image, result, rtol=RTOL)
+    np.testing.assert_allclose(expected, result_2, rtol=RTOL)
 
 
 def test_interpolate_gradient_cpu():
@@ -61,9 +92,9 @@ def test_interpolate_gradient_cpu():
         ],
         dtype=np.float32,
     )
-    np.testing.assert_allclose(verify, result)
+
     result_2 = interpolate_gradient_cpu(image, coordinates_2)
-    verify = np.array(
+    verify_2 = np.array(
         [
             [
                 [0.0, 3.0],
@@ -96,71 +127,6 @@ def test_interpolate_gradient_cpu():
         ],
         dtype=np.float32,
     )
-    np.testing.assert_allclose(verify, result_2, rtol=5e-7)
 
-
-def test_interpolate_gpu():
-    image, coordinates, coordinates_2 = _get_image_and_coords(cp)
-    result = interpolate_gpu(image, coordinates)
-    cp.testing.assert_allclose(image, result)
-    result_2 = interpolate_gpu(image, coordinates_2)
-    expected = cp.array(
-        [
-            [2.3351169, 4.784593, 6.323781, 7.888076, 0.6047023],
-            [2.4068134, 1.0830803, 1.5158693, 1.6066545, 2.2851026],
-            [1.0, 1.0497671, 1.8376315, 3.6594667, 5.994196],
-            [1.0, 1.8726237, 1.1656399, 0.21499483, 3.532943],
-        ],
-        dtype=cp.float32,
-    )
-    cp.testing.assert_allclose(expected, result_2)
-
-
-def test_interpolate_gradient_gpu():
-    image, coordinates, coordinates_2 = _get_image_and_coords(cp)
-    result = interpolate_gradient_gpu(image, coordinates)
-    verify = cp.array(
-        [
-            [[1.0, 3.0], [-4.0, 2.0], [-5.0, 1.0], [-8.0, -7.0], [-1.0, -7.0]],
-            [[-2.0, -2.0], [0.0, 1.0], [-2.0, -2.0], [4.0, 0.0], [6.0, 0.0]],
-            [[0.0, 0.0], [1.0, -1.0], [1.0, 4.0], [-4.0, 2.0], [-1.0, 2.0]],
-            [[0.0, 1.0], [1.0, -1.0], [1.0, -1.0], [-4.0, 5.0], [-1.0, 5.0]],
-        ],
-        dtype=cp.float32,
-    )
-    cp.testing.assert_allclose(cp.array(verify), result)
-    result_2 = interpolate_gradient_gpu(image, coordinates_2)
-    verify = cp.array(
-        [
-            [
-                [0.48179293, 2.748931],
-                [0.0, 3.0],
-                [0.0, 2.0],
-                [0.0, 1.0],
-                [-1.0, 0.0],
-            ],
-            [
-                [-2.0, 0.0],
-                [-0.6195262, 0.2682058],
-                [-1.702734, 0.6059305],
-                [-7.639736, -1.4721166],
-                [6.0, 0.0],
-            ],
-            [
-                [0.0, 0.0],
-                [0.6556361, 0.07590657],
-                [-1.4056768, 3.6908605],
-                [-3.909028, 3.6575165],
-                [-1.0, 0.0],
-            ],
-            [
-                [0.0, 0.0],
-                [1.0, -1.0],
-                [0.0, -1.0],
-                [0.0, 5.0],
-                [-1.9338055, 4.8614874],
-            ],
-        ],
-        dtype=cp.float32,
-    )
-    cp.testing.assert_allclose(verify, result_2)
+    np.testing.assert_allclose(verify, result, rtol=RTOL)
+    np.testing.assert_allclose(verify_2, result_2, rtol=RTOL)

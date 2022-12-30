@@ -20,6 +20,7 @@ class Quadrature2D:
         2D quadrature point representation to approximate the integral or
         gradient of a function F(x, y)
         """
+        self._number_of_points = number_of_points ** 2
         if number_of_points == 2:
             self._points = self._get_gauss_quad_points_2(dispatcher)
             self._weight = self._get_gauss_quad_weights_2(dispatcher)
@@ -121,7 +122,7 @@ class Quadrature2D:
     @property
     def number_of_quadrature_points(self) -> int:
         """Number of quadrature points in a cell"""
-        return self.quadrature_points.shape[0]
+        return self._number_of_points
 
     @cached_property
     def cell_grid_shape(self) -> Tuple[int, int]:

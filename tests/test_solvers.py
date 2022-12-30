@@ -7,9 +7,7 @@ from pymatchseries.implementation import solvers
 
 def test_sparse_cholesky():
     A = np.array(
-        [[1., 2., 1.],
-         [4., 5., 6.],
-         [0., 8., 9.]],
+        [[1.0, 2.0, 1.0], [4.0, 5.0, 6.0], [0.0, 8.0, 9.0]],
     )
     M = np.dot(A.T, A)
     b = np.array([0.1, 0.5, -0.2])
@@ -21,9 +19,7 @@ def test_sparse_cholesky():
 @pytest.mark.skipif(not CUPY_IS_INSTALLED, reason="cupy not installed")
 def test_sparse_cholesky_cp():
     A = cp.array(
-        [[1., 2., 1.],
-         [4., 5., 6.],
-         [0., 8., 9.]],
+        [[1.0, 2.0, 1.0], [4.0, 5.0, 6.0], [0.0, 8.0, 9.0]],
     )
     M = cp.dot(A.T, A)
     b = cp.array([0.1, 0.5, -0.2])
@@ -33,12 +29,7 @@ def test_sparse_cholesky_cp():
 
 
 def test_sparse_cholesky_lq():
-    A = np.array(
-        [[1., 2., 3.],
-         [4., 5., 6.],
-         [7., 8., 9.],
-         [7., 8., 9.]]
-    )
+    A = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0], [7.0, 8.0, 9.0]])
     A_t = A.T
     b = np.array([0.1, 0.5, -0.2, -0.1])
     x = solvers.solve_sparse_cholesky_lq(A, b, np)
@@ -48,12 +39,7 @@ def test_sparse_cholesky_lq():
 
 @pytest.mark.skipif(not CUPY_IS_INSTALLED, reason="cupy not installed")
 def test_sparse_cholesky_lq_cp():
-    A = cp.array(
-        [[1., 2., 3.],
-         [4., 5., 6.],
-         [7., 8., 9.],
-         [7., 8., 9.]]
-    )
+    A = cp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0], [7.0, 8.0, 9.0]])
     A_t = A.T
     b = cp.array([0.1, 0.5, -0.2, -0.1])
     x = solvers.solve_sparse_cholesky_lq(A, b, cp)
