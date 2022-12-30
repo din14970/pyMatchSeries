@@ -112,7 +112,7 @@ class RegistrationObjectiveFunction:
                 sparse.hstack([mat_zero, mat_reg]),
                 sparse.hstack([mat_reg, mat_zero]),
             ]
-        )
+        ).tocsr()
 
     def evaluate_residual(
         self,
@@ -207,10 +207,10 @@ class RegistrationObjectiveFunction:
         dfdx = df[..., 1].reshape(self.cell_grid_shape).astype(dp.float32)
 
         data_y, rows_y, cols_y = self.quadrature.evaluate_partial_derivatives(
-            dfdy, self.quadrature.node_weights,
+            dfdy, self.quadrature.basis_f_at_points,
         )
         data_x, rows_x, cols_x = self.quadrature.evaluate_partial_derivatives(
-            dfdx, self.quadrature.node_weights,
+            dfdx, self.quadrature.basis_f_at_points,
         )
 
         gradient_data = self.sparse.csr_matrix(
@@ -229,21 +229,34 @@ class RegistrationObjectiveFunction:
 
         return self.sparse.vstack(
             [gradient_data, self.derivative_of_regularizer]
-        )
+        ).tocsr()
 
     def evaluate_energy(
         self,
         displacement_vector: DenseArrayType,
+        positions_at_quad_points: Optional[DenseArrayType] = None,
     ) -> float:
         dp = self.dispatcher
-        return dp.sum(self.evaluate_residual(displacement_vector) ** 2)
+        return dp.sum(
+            self.evaluate_residual(
+                displacement_vector,
+                positions_at_quad_points,
+            ) ** 2
+        )
 
     def evaluate_energy_gradient(
         self,
         displacement_vector: DenseArrayType,
+        positions_at_quad_points: Optional[DenseArrayType] = None,
     ) -> DenseArrayType:
-        residual = self.evaluate_residual(displacement_vector)
-        residual_gradient = self.evaluate_residual_gradient(displacement_vector)
+        residual = self.evaluate_residual(
+            displacement_vector,
+            positions_at_quad_points,
+        )
+        residual_gradient = self.evaluate_residual_gradient(
+            displacement_vector,
+            positions_at_quad_points,
+        )
         return 2 * residual_gradient.T * residual.ravel()
 
     def _quantize_displacement_vector(

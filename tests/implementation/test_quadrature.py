@@ -34,14 +34,20 @@ class TestQuadrature:
         dp = quad.dispatcher
         image = dp.random.rand(*quad.grid_shape).astype(dp.float32)
         result = quad.evaluate(image)
-        expected_shape = (image.shape[0]-1, image.shape[1]-1, quad.number_of_quadrature_points)
+        expected_shape = (
+            image.shape[0] - 1,
+            image.shape[1] - 1,
+            quad.number_of_quadrature_points,
+        )
         assert result.shape == expected_shape
 
     def test_evaluate_partial_derivatives(self, quad: Quadrature2D) -> None:
         dp = quad.dispatcher
         shape = quad.cell_grid_shape
         quad_values = dp.random.rand(*shape).astype(dp.float32)
-        node_weights = dp.random.rand(4, quad.number_of_quadrature_points).astype(dp.float32)
+        node_weights = dp.random.rand(4, quad.number_of_quadrature_points).astype(
+            dp.float32
+        )
         result = quad.evaluate_partial_derivatives(quad_values, node_weights)
         expected_shape = (quad.total_number_of_quadrature_points * 4,)
         assert len(result) == 3
