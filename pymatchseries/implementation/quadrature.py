@@ -6,7 +6,7 @@ import numpy as np
 from numba import njit, prange
 from functools import cached_property
 
-from pymatchseries.utils import DenseArrayType
+from pymatchseries.utils import DenseArrayType, get_grid_scaling_factor
 
 
 class Quadrature2D:
@@ -34,7 +34,7 @@ class Quadrature2D:
         self.grid_shape = grid_shape
         self.dispatcher = dispatcher
         # Factor to rescale integration domain so that longest dimension is 1
-        self.grid_scaling: float = 1 / (max(grid_shape) - 1)
+        self.grid_scaling: float = get_grid_scaling_factor(grid_shape)
         if self.dispatcher == np:
             self.evaluate_function = evaluate_at_quad_points_cpu
             self.evaluate_pd_function = evaluate_pd_on_quad_points_cpu

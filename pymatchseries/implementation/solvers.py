@@ -4,9 +4,7 @@ import warnings
 import logging
 from tqdm import tqdm
 
-
-import numpy as np
-from pymatchseries.utils import Matrix, DenseArrayType, ArrayType
+from pymatchseries.utils import Matrix, DenseArrayType, ArrayType, get_dispatcher
 
 
 logger = logging.getLogger(__name__)
@@ -56,6 +54,7 @@ def root_gauss_newton(
     else:
         iterations = range(max_iterations)
 
+    dp = get_dispatcher(x0)
     matrix_type = None
 
     for i in iterations:
@@ -64,7 +63,7 @@ def root_gauss_newton(
             matrix_type = Matrix.get_matrix_type(matDF)
         dx = matrix_type(matDF).solve_lstsq(f)
 
-        if not np.all(np.isfinite(dx)):
+        if not dp.all(dp.isfinite(dx)):
             raise RuntimeError("Least squares solving failed.")
 
         x -= dx
@@ -96,9 +95,11 @@ def root_gauss_newton(
 
         if (
             error_difference <= stop_epsilon * updated_total_square_error
-            or np.isclose(updated_total_square_error, 0)
+            or dp.isclose(updated_total_square_error, 0)
         ):
             # convergence is reached
+            if show_progress:
+                iterations.close()
             break
 
         total_square_error = updated_total_square_error
