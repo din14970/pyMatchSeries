@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Callable
 import warnings
 import logging
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from pymatchseries.utils import Matrix, DenseArrayType, ArrayType, get_dispatcher
 
@@ -50,7 +50,7 @@ def root_gauss_newton(
 
     # use tqdm to show a progress bar
     if show_progress:
-        iterations = tqdm(range(max_iterations))
+        iterations = tqdm(range(max_iterations), leave=False)
     else:
         iterations = range(max_iterations)
 
@@ -99,7 +99,7 @@ def root_gauss_newton(
         ):
             # convergence is reached
             if show_progress:
-                iterations.close()
+                iterations.container.close()
             break
 
         total_square_error = updated_total_square_error
