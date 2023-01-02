@@ -1,20 +1,30 @@
 from __future__ import annotations
-from typing import Optional, Any, Mapping, Iterator, Callable
-import dask.array as da
-from tqdm.auto import tqdm
-from pathlib import Path
 
 from dataclasses import dataclass as classic_dataclass
+from pathlib import Path
+from typing import Any, Callable, Iterator, Mapping, Optional
+
+import dask.array as da
+from hyperspy.signals import ComplexSignal2D, Signal2D
 from pydantic.dataclasses import dataclass
+from tqdm.auto import tqdm
 
-from hyperspy.signals import Signal2D, ComplexSignal2D
-
-from pymatchseries.utils import (
-    DenseArrayType, create_image_pyramid, resize_image_stack, map_coordinates,
-    displacement_to_coordinates, to_host, to_device, mean, median, get_dispatcher,
+from pymatchseries.implementation.objective_functions import (
+    RegistrationObjectiveFunction,
 )
-from pymatchseries.implementation.objective_functions import RegistrationObjectiveFunction
 from pymatchseries.implementation.solvers import root_gauss_newton
+from pymatchseries.utils import (
+    DenseArrayType,
+    create_image_pyramid,
+    displacement_to_coordinates,
+    get_dispatcher,
+    map_coordinates,
+    mean,
+    median,
+    resize_image_stack,
+    to_device,
+    to_host,
+)
 
 
 class _DataclassConfig:
@@ -24,7 +34,7 @@ class _DataclassConfig:
 @dataclass(config=_DataclassConfig)
 class Regularization:
     constant_start: float = 0.1
-    factor_level: float = 1.
+    factor_level: float = 1.0
     factor_stage: float = 0.1
 
 
@@ -37,8 +47,8 @@ class ObjectiveConfig:
 @dataclass(config=_DataclassConfig)
 class SolverConfig:
     max_iterations: int = 50
-    stop_epsilon: float = 0.
-    start_step: float = 1.
+    stop_epsilon: float = 0.0
+    start_step: float = 1.0
     show_progress: bool = True
 
 
@@ -70,14 +80,13 @@ class JNNRState:
 
     @classmethod
     def load(cls, filepath: str = "saved_jnnr_calculation") -> JNNRState:
-        pass
+        raise NotImplementedError()
 
     def save(self) -> None:
-        pass
+        raise NotImplementedError()
 
 
 class JNRR:
-
     def __init__(
         self,
         images: Signal2D,
@@ -91,10 +100,10 @@ class JNRR:
         cls,
         filepath: Path,
     ) -> JNRR:
-        pass
+        raise NotImplementedError()
 
     def save(self) -> None:
-        pass
+        raise NotImplementedError()
 
     @property
     def images(self) -> Signal2D:
@@ -119,15 +128,19 @@ class JNRR:
                     f"Stage: {stage + 1}, Image: 0/{self.number_of_images}"
                 )
                 # Registration - finding all displacements
-                for i, image in enumerate(self._get_image_iterator(
-                    self.images,
-                    device=self.config.device,
-                )):
+                for i, image in enumerate(
+                    self._get_image_iterator(
+                        self.images,
+                        device=self.config.device,
+                    )
+                ):
                     dp = get_dispatcher(image)
                     if self.state.reference_image is None:
                         self.state.reference_image = image
                         displacement = dp.zeros((2, *image.shape), dtype=image.dtype)
-                        displacements.append(self._displacement_to_complex(displacement))
+                        displacements.append(
+                            self._displacement_to_complex(displacement)
+                        )
                         corrected_images.append(image)
                         progress.update(n=1)
                         continue
@@ -209,8 +222,10 @@ class JNRR:
         elif device == "gpu":
             transfer = to_device
         else:
+
             def do_nothing(x):
                 return x
+
             transfer = do_nothing
 
         for image in iter(images):
@@ -243,12 +258,12 @@ class JNRR:
         im_def_pyramid = create_image_pyramid(
             image_deformed,
             n_levels,
-            downscale_factor=2.,
+            downscale_factor=2.0,
         )
         im_ref_pyramid = create_image_pyramid(
             image_reference,
             n_levels,
-            downscale_factor=2.,
+            downscale_factor=2.0,
         )
 
         displacement = None
@@ -256,9 +271,7 @@ class JNRR:
         progress = tqdm(total=n_levels, leave=False)
 
         with progress:
-            progress.set_description(
-                f"Level: 0/{n_levels}"
-            )
+            progress.set_description(f"Level: 0/{n_levels}")
             for i, (im_def, im_ref) in enumerate(zip(im_def_pyramid, im_ref_pyramid)):
                 if displacement is not None:
                     displacement = resize_image_stack(
@@ -295,12 +308,14 @@ class JNRR:
         """Compare two images and get the optimized displacement field"""
         image_shape = image_deformed.shape
         objective_configuration = configuration.objective
+        n_quad_points = objective_configuration.number_of_quadrature_points
+        cache_d_reg = objective_configuration.cache_derivative_of_regularizer
         objective = RegistrationObjectiveFunction(
             image_deformed,
             image_reference,
             regularization_constant,
-            number_of_quadrature_points=objective_configuration.number_of_quadrature_points,
-            cache_derivative_of_regularizer=objective_configuration.cache_derivative_of_regularizer,
+            number_of_quadrature_points=n_quad_points,
+            cache_derivative_of_regularizer=cache_d_reg,
         )
 
         dp = objective.dispatcher

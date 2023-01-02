@@ -3,7 +3,6 @@ from typing import Tuple
 import cupy as cp
 from numba import cuda, float32
 
-
 TPB = 16
 TPB1 = TPB + 1
 
@@ -150,8 +149,7 @@ def _evaluate_gpu_kernel(
     coordinates: cp.ndarray,
     result: cp.ndarray,
 ) -> None:
-    """Evaluate image at non-integer coordinates with linear interpolation
-    """
+    """Evaluate image at non-integer coordinates with linear interpolation"""
     row, column = cuda.grid(2)
 
     if row >= coordinates.shape[0] or column >= coordinates.shape[1]:
@@ -171,10 +169,10 @@ def _evaluate_gpu_kernel(
     w_11 = wy * wx
 
     result[row, column] = (
-        image[y0, x0] * w_00 +
-        image[y1, x0] * w_10 +
-        image[y0, x1] * w_01 +
-        image[y1, x1] * w_11
+        image[y0, x0] * w_00
+        + image[y1, x0] * w_10
+        + image[y0, x1] * w_01
+        + image[y1, x1] * w_11
     )
 
 
@@ -184,8 +182,7 @@ def _evaluate_gradient_gpu_kernel(
     coordinates: cp.ndarray,
     result: cp.ndarray,
 ) -> None:
-    """Evaluate image gradient at non-integer coordinates with linear interpolation
-    """
+    """Evaluate image gradient at non-integer coordinates with linear interpolation"""
     row, column = cuda.grid(2)
 
     if row >= coordinates.shape[0] or column >= coordinates.shape[1]:
@@ -196,22 +193,20 @@ def _evaluate_gradient_gpu_kernel(
     valid_y, y0, wy = _get_interpolation_parameters(y, image.shape[0])
     valid_x, x0, wx = _get_interpolation_parameters(x, image.shape[1])
 
-    one_minus_wx = 1. - wx
-    one_minus_wy = 1. - wy
+    one_minus_wx = 1.0 - wx
+    one_minus_wy = 1.0 - wy
     y1 = y0 + 1
     x1 = x0 + 1
 
     if valid_y:
-        result[row, column, 0] = (
-            (image[y1, x0] - image[y0, x0]) * one_minus_wx +
-            (image[y1, x1] - image[y0, x1]) * wx
-        )
+        result[row, column, 0] = (image[y1, x0] - image[y0, x0]) * one_minus_wx + (
+            image[y1, x1] - image[y0, x1]
+        ) * wx
 
     if valid_x:
-        result[row, column, 1] = (
-            (image[y0, x1] - image[y0, x0]) * one_minus_wy +
-            (image[y1, x1] - image[y1, x0]) * wy
-        )
+        result[row, column, 1] = (image[y0, x1] - image[y0, x0]) * one_minus_wy + (
+            image[y1, x1] - image[y1, x0]
+        ) * wy
 
 
 @cuda.jit(device=True)
@@ -227,23 +222,21 @@ def _get_interpolation_parameters(
     elif coordinate < 0:
         is_valid = False
         reference_gridpoint = 0
-        weight = 0.
+        weight = 0.0
     elif coordinate > axis_size - 1:
         is_valid = False
         reference_gridpoint = axis_size - 2
-        weight = 1.
+        weight = 1.0
     elif coordinate == axis_size - 1:
         is_valid = True
         reference_gridpoint = axis_size - 2
-        weight = 1.
+        weight = 1.0
     return is_valid, reference_gridpoint, weight
 
 
 @cuda.jit
 def _evaluate_at_quad_points_kernel(
-    array: cp.ndarray,
-    node_weights: cp.ndarray,
-    output: cp.ndarray
+    array: cp.ndarray, node_weights: cp.ndarray, output: cp.ndarray
 ) -> None:
     r, c = cuda.grid(2)
     tx = cuda.threadIdx.x
@@ -258,8 +251,8 @@ def _evaluate_at_quad_points_kernel(
 
     s_array[tx, ty] = array[r, c]
     TPBM = TPB - 1
-    at_bottom_of_block = (tx == TPBM or r == output.shape[0] - 1)
-    at_right_of_block = (ty == TPBM or c == output.shape[1] - 1)
+    at_bottom_of_block = tx == TPBM or r == output.shape[0] - 1
+    at_right_of_block = ty == TPBM or c == output.shape[1] - 1
 
     if at_bottom_of_block:
         s_array[tx + 1, ty] = array[r + 1, c]

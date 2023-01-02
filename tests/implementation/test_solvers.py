@@ -1,12 +1,15 @@
-from typing import Tuple
-import pytest
 from types import ModuleType
-import numpy as np
-from pymatchseries.implementation.objective_functions import RegistrationObjectiveFunction
-from pymatchseries.implementation.solvers import root_gauss_newton
-from skimage.transform import pyramid_gaussian
-from pymatchseries.utils import DenseArrayType, cp, CUPY_IS_INSTALLED
+from typing import Tuple
 
+import numpy as np
+import pytest
+from skimage.transform import pyramid_gaussian
+
+from pymatchseries.implementation.objective_functions import (
+    RegistrationObjectiveFunction,
+)
+from pymatchseries.implementation.solvers import root_gauss_newton
+from pymatchseries.utils import CUPY_IS_INSTALLED, DenseArrayType, cp
 
 if CUPY_IS_INSTALLED:
     params = [np, cp]
@@ -18,8 +21,8 @@ def _setup(dp: ModuleType = np) -> Tuple[RegistrationObjectiveFunction, DenseArr
     im1 = np.zeros((128, 128), dtype=np.float32)
     im2 = np.zeros((128, 128), dtype=np.float32)
 
-    im1[2 * 10: 2 * 30, 2 * 15: 2 * 45] = 1
-    im2[2 * 25: 2 * 45, 2 * 25: 2 * 55] = 1
+    im1[2 * 10 : 2 * 30, 2 * 15 : 2 * 45] = 1
+    im2[2 * 25 : 2 * 45, 2 * 25 : 2 * 55] = 1
 
     num_levels = 5
 
@@ -60,4 +63,6 @@ def test_root_gauss_newton(dp: ModuleType) -> None:
         objective.evaluate_residual_gradient,
     ).reshape(disp.shape)
 
-    assert objective.evaluate_energy(disp.ravel()) > objective.evaluate_energy(disp_new.ravel())
+    assert objective.evaluate_energy(disp.ravel()) > objective.evaluate_energy(
+        disp_new.ravel()
+    )

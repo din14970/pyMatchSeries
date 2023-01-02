@@ -1,8 +1,9 @@
 from typing import Tuple
-from numba import prange, njit
-import numpy as np
 
-from pymatchseries.utils import DenseArrayType, get_dispatcher, cp
+import numpy as np
+from numba import njit, prange
+
+from pymatchseries.utils import DenseArrayType, cp, get_dispatcher
 
 
 class BilinearInterpolation2D:
@@ -29,6 +30,7 @@ class BilinearInterpolation2D:
                 interpolate_gpu,
                 interpolate_gradient_gpu,
             )
+
             self.evaluate_function = interpolate_gpu
             self.evaluate_gradient_function = interpolate_gradient_gpu
         else:
@@ -116,7 +118,7 @@ def interpolate_cpu(
             x = coordinates[row, column, 1]
             _, y0, wy = _get_interpolation_parameters(y, image.shape[0])
             _, x0, wx = _get_interpolation_parameters(x, image.shape[1])
-            sample = image[y0: y0 + 2, x0: x0 + 2]
+            sample = image[y0 : y0 + 2, x0 : x0 + 2]
             one_minus_wx = 1 - wx
             one_minus_wy = 1 - wy
             temp_weights[0, 0] = one_minus_wx * one_minus_wy
@@ -159,22 +161,20 @@ def interpolate_gradient_cpu(
             valid_y, y0, wy = _get_interpolation_parameters(y, image.shape[0])
             valid_x, x0, wx = _get_interpolation_parameters(x, image.shape[1])
 
-            one_minus_wx = 1. - wx
-            one_minus_wy = 1. - wy
+            one_minus_wx = 1.0 - wx
+            one_minus_wy = 1.0 - wy
             y1 = y0 + 1
             x1 = x0 + 1
 
             if valid_y:
                 result[row, column, 0] = (
-                    (image[y1, x0] - image[y0, x0]) * one_minus_wx +
-                    (image[y1, x1] - image[y0, x1]) * wx
-                )
+                    image[y1, x0] - image[y0, x0]
+                ) * one_minus_wx + (image[y1, x1] - image[y0, x1]) * wx
 
             if valid_x:
                 result[row, column, 1] = (
-                    (image[y0, x1] - image[y0, x0]) * one_minus_wy +
-                    (image[y1, x1] - image[y1, x0]) * wy
-                )
+                    image[y0, x1] - image[y0, x0]
+                ) * one_minus_wy + (image[y1, x1] - image[y1, x0]) * wy
 
     return result
 
@@ -191,13 +191,13 @@ def _get_interpolation_parameters(
     elif coordinate < 0:
         is_valid = False
         reference_gridpoint = 0
-        weight = 0.
+        weight = 0.0
     elif coordinate > axis_size - 1:
         is_valid = False
         reference_gridpoint = axis_size - 2
-        weight = 1.
+        weight = 1.0
     elif coordinate == axis_size - 1:
         is_valid = True
         reference_gridpoint = axis_size - 2
-        weight = 1.
+        weight = 1.0
     return is_valid, reference_gridpoint, weight

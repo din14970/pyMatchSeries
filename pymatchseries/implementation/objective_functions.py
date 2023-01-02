@@ -1,24 +1,25 @@
-import numpy as np
-from math import prod, sqrt
-from typing import Optional, Tuple, Dict
-from types import ModuleType
 from functools import cached_property
+from math import prod, sqrt
+from types import ModuleType
+from typing import Dict, Optional, Tuple
+
+from pymatchseries.utils import (
+    DenseArrayType,
+    OneValueCache,
+    SparseMatrixType,
+    get_dispatcher,
+    get_sparse_module,
+)
 
 from .interpolation import BilinearInterpolation2D
 from .quadrature import Quadrature2D
 
-from pymatchseries.utils import (
-    DenseArrayType,
-    SparseMatrixType,
-    get_dispatcher,
-    get_sparse_module,
-    OneValueCache,
-)
-
 
 class RegistrationObjectiveFunction:
     # class level cache for the regularizer derivative
-    _DERIVATIVE_OF_REGULARIZER_CACHE: Dict[Tuple[int, int, int, float, ModuleType], SparseMatrixType] = {}
+    _DERIVATIVE_OF_REGULARIZER_CACHE: Dict[
+        Tuple[int, int, int, float, ModuleType], SparseMatrixType
+    ] = {}
 
     def __init__(
         self,
@@ -32,7 +33,7 @@ class RegistrationObjectiveFunction:
         self.grid_shape = image_deformed.shape
         self.sparse = get_sparse_module(self.dispatcher)
         self.quadrature = Quadrature2D(
-            grid_shape=self.grid_shape,
+            grid_shape=(self.grid_shape[0], self.grid_shape[1]),
             number_of_points=number_of_quadrature_points,
             dispatcher=self.dispatcher,
         )
@@ -41,8 +42,8 @@ class RegistrationObjectiveFunction:
         self.image_reference = image_reference
 
         self.identity = self.dispatcher.mgrid[
-            0: self.grid_shape[0],
-            0: self.grid_shape[1],
+            0 : self.grid_shape[0],
+            0 : self.grid_shape[1],
         ].astype(self.dispatcher.float32)
 
         self.regularization_constant = float(regularization_constant)
@@ -74,30 +75,30 @@ class RegistrationObjectiveFunction:
         error
             Array of length (5 * (N-1) * (M-1) * K)
         """
-        positions_at_quad_points = self._quantize_displacement_vector(displacement_vector)
+        positions_at_quad_points = self._quantize_displacement_vector(
+            displacement_vector
+        )
 
         dp = self.dispatcher
         R = self.cell_grid_shape[0]
         C = self.cell_grid_shape[1] * self.cell_grid_shape[2]
         positions_at_quad_points = positions_at_quad_points.reshape(R, C, 2)
 
-        corrected_image = (
-            self.image_deformed_interpolated
-            .evaluate(positions_at_quad_points)
-            .reshape(-1, self.number_of_quadrature_points)
-        )
+        corrected_image = self.image_deformed_interpolated.evaluate(
+            positions_at_quad_points
+        ).reshape(-1, self.number_of_quadrature_points)
 
-        ground_truth = (
-            self.quadrature
-            .evaluate(self.image_reference)
-            .reshape(-1, self.number_of_quadrature_points)
+        ground_truth = self.quadrature.evaluate(self.image_reference).reshape(
+            -1, self.number_of_quadrature_points
         )
 
         residual_data = dp.multiply(
             self.quadrature.quadrature_point_weights_sqrt,
             corrected_image - ground_truth,
         )
-        residual_regularization = self.derivative_of_regularizer.dot(displacement_vector)
+        residual_regularization = self.derivative_of_regularizer.dot(
+            displacement_vector
+        )
 
         return dp.concatenate(
             (
@@ -123,22 +124,29 @@ class RegistrationObjectiveFunction:
         error_gradient
             Sparse matrix of shape (5 * (N-1) * (M-1) * K, 2 * N * M)
         """
-        positions_at_quad_points = self._quantize_displacement_vector(displacement_vector)
+        positions_at_quad_points = self._quantize_displacement_vector(
+            displacement_vector
+        )
 
         dp = self.dispatcher
         R = self.cell_grid_shape[0]
         C = self.cell_grid_shape[1] * self.cell_grid_shape[2]
-        df = self.image_deformed_interpolated.evaluate_gradient(
-            positions_at_quad_points.reshape(R, C, 2)
-        ) / self.grid_scaling
+        df = (
+            self.image_deformed_interpolated.evaluate_gradient(
+                positions_at_quad_points.reshape(R, C, 2)
+            )
+            / self.grid_scaling
+        )
         dfdy = df[..., 0].reshape(self.cell_grid_shape).astype(dp.float32)
         dfdx = df[..., 1].reshape(self.cell_grid_shape).astype(dp.float32)
 
         data_y, rows_y, cols_y = self.quadrature.evaluate_partial_derivatives(
-            dfdy, self.quadrature.basis_f_at_points,
+            dfdy,
+            self.quadrature.basis_f_at_points,
         )
         data_x, rows_x, cols_x = self.quadrature.evaluate_partial_derivatives(
-            dfdx, self.quadrature.basis_f_at_points,
+            dfdx,
+            self.quadrature.basis_f_at_points,
         )
 
         gradient_data = self.sparse.csr_matrix(
@@ -199,14 +207,20 @@ class RegistrationObjectiveFunction:
         if array_bytes in self.positions_at_quad_points_cache:
             return self.positions_at_quad_points_cache[array_bytes]
 
-        displacement_y, displacement_x = displacement_vector.reshape((2, *self.grid_shape))
+        displacement_y, displacement_x = displacement_vector.reshape(
+            (2, *self.grid_shape)
+        )
         pixel_row, pixel_column = self.identity
         new_position_x = displacement_x / self.grid_scaling + pixel_column
         new_position_y = displacement_y / self.grid_scaling + pixel_row
         n_rows = self.quadrature.total_number_of_quadrature_points
         positions_at_quad_points = dp.empty((n_rows, 2), dtype=dp.float32)
-        positions_at_quad_points[:, 0] = self.quadrature.evaluate(new_position_y).ravel()
-        positions_at_quad_points[:, 1] = self.quadrature.evaluate(new_position_x).ravel()
+        positions_at_quad_points[:, 0] = self.quadrature.evaluate(
+            new_position_y
+        ).ravel()
+        positions_at_quad_points[:, 1] = self.quadrature.evaluate(
+            new_position_x
+        ).ravel()
 
         self.positions_at_quad_points_cache[array_bytes] = positions_at_quad_points
 
@@ -251,17 +265,21 @@ class RegistrationObjectiveFunction:
         )
 
         # reg = regularizer
-        data_reg_x, rows_reg_x, cols_reg_x = (
-            self.quadrature.evaluate_partial_derivatives(
-                quadrature_values,
-                node_weights=self.quadrature.basis_dfx_at_points,
-            )
+        (
+            data_reg_x,
+            rows_reg_x,
+            cols_reg_x,
+        ) = self.quadrature.evaluate_partial_derivatives(
+            quadrature_values,
+            node_weights=self.quadrature.basis_dfx_at_points,
         )
-        data_reg_y, rows_reg_y, cols_reg_y = (
-            self.quadrature.evaluate_partial_derivatives(
-                quadrature_values,
-                node_weights=self.quadrature.basis_dfy_at_points,
-            )
+        (
+            data_reg_y,
+            rows_reg_y,
+            cols_reg_y,
+        ) = self.quadrature.evaluate_partial_derivatives(
+            quadrature_values,
+            node_weights=self.quadrature.basis_dfy_at_points,
         )
 
         # combine the data into a single matrix
@@ -293,7 +311,9 @@ class RegistrationObjectiveFunction:
 
     def cache_derivative_of_regularizer(self) -> None:
         if self._cache_key not in self._DERIVATIVE_OF_REGULARIZER_CACHE:
-            self._DERIVATIVE_OF_REGULARIZER_CACHE[self._cache_key] = self.derivative_of_regularizer
+            self._DERIVATIVE_OF_REGULARIZER_CACHE[
+                self._cache_key
+            ] = self.derivative_of_regularizer
 
     def _get_cached_derivative_of_regularizer(self) -> Optional[SparseMatrixType]:
         return self._DERIVATIVE_OF_REGULARIZER_CACHE.get(self._cache_key)

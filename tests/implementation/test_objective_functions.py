@@ -1,12 +1,13 @@
-import pytest
+from pathlib import Path
+
 import numpy as np
+import pytest
+from scipy import sparse
+
 from pymatchseries.implementation.objective_functions import (
     RegistrationObjectiveFunction,
 )
 from pymatchseries.utils import CUPY_IS_INSTALLED, cp
-from scipy import sparse
-
-from pathlib import Path
 
 this_file = Path(__file__)
 data_folder = this_file.parent.parent / "data"

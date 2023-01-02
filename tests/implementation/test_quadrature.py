@@ -1,13 +1,14 @@
+from math import prod
+
 import numpy as np
 import pytest
-from math import prod
+
 from pymatchseries.implementation.quadrature import (
     Quadrature2D,
     evaluate_at_quad_points_cpu,
     evaluate_pd_on_quad_points_cpu,
 )
 from pymatchseries.utils import CUPY_IS_INSTALLED, cp
-
 
 RTOL = 1e-6
 

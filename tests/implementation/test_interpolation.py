@@ -1,9 +1,9 @@
 import numpy as np
+
 from pymatchseries.implementation.interpolation import (
     interpolate_cpu,
     interpolate_gradient_cpu,
 )
-
 
 RTOL = 1e-6
 

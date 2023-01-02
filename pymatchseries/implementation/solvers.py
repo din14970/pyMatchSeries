@@ -1,11 +1,12 @@
 from __future__ import annotations
-from typing import Callable
-import warnings
+
 import logging
+import warnings
+from typing import Callable
+
 from tqdm.auto import tqdm
 
-from pymatchseries.utils import Matrix, DenseArrayType, ArrayType, get_dispatcher
-
+from pymatchseries.utils import ArrayType, DenseArrayType, Matrix, get_dispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +16,8 @@ def root_gauss_newton(
     x0: DenseArrayType,
     DF: Callable[[DenseArrayType], ArrayType],
     max_iterations: int = 50,
-    stop_epsilon: float = 0.,
-    start_step: float = 1.,
+    stop_epsilon: float = 0.0,
+    start_step: float = 1.0,
     show_progress: bool = False,
 ) -> DenseArrayType:
     """
@@ -93,9 +94,8 @@ def root_gauss_newton(
                 )
             )
 
-        if (
-            error_difference <= stop_epsilon * updated_total_square_error
-            or dp.isclose(updated_total_square_error, 0)
+        if error_difference <= stop_epsilon * updated_total_square_error or dp.isclose(
+            updated_total_square_error, 0
         ):
             # convergence is reached
             if show_progress:
@@ -105,7 +105,9 @@ def root_gauss_newton(
         total_square_error = updated_total_square_error
 
     else:
-        warnings.warn("Reached the maximum number of iterations without reaching stop criterion")
+        warnings.warn(
+            "Reached the maximum number of iterations without reaching stop criterion"
+        )
 
     return x
 
@@ -114,7 +116,7 @@ def _get_stepsize(
     F: Callable[[DenseArrayType], DenseArrayType],
     x: DenseArrayType,
     dx: DenseArrayType,
-    start_step: float = 1.,
+    start_step: float = 1.0,
     min_step: float = 2**-30,
 ) -> float:
     """
@@ -138,6 +140,7 @@ def _get_stepsize(
     step
         Largest step that ensures a decrease in energy
     """
+
     def error_function(v):
         evaluated = F(v)
         return evaluated.dot(evaluated)

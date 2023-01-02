@@ -8,8 +8,8 @@ def test_multilevel() -> None:
     im1 = np.zeros(shape, dtype=np.float32)
     im2 = np.zeros(shape, dtype=np.float32)
 
-    im1[2 * 10: 2 * 30, 2 * 15: 2 * 45] = 1
-    im2[2 * 25: 2 * 45, 2 * 25: 2 * 55] = 1
+    im1[2 * 10 : 2 * 30, 2 * 15 : 2 * 45] = 1
+    im2[2 * 25 : 2 * 45, 2 * 25 : 2 * 55] = 1
 
     configuration = JNNRConfig()
     configuration.solver.show_progress = False

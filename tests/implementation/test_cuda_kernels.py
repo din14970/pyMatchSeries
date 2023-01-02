@@ -1,15 +1,11 @@
 import numpy as np
 import pytest
 
-from pymatchseries.utils import (
-    cp,
-    CUPY_IS_INSTALLED,
-)
 from pymatchseries.implementation.cuda_kernels import (
-    interpolate_gpu,
-    interpolate_gradient_gpu,
     evaluate_at_quad_points_gpu,
     evaluate_pd_on_quad_points_gpu,
+    interpolate_gpu,
+    interpolate_gradient_gpu,
 )
 from pymatchseries.implementation.interpolation import (
     interpolate_cpu,
@@ -19,6 +15,7 @@ from pymatchseries.implementation.quadrature import (
     evaluate_at_quad_points_cpu,
     evaluate_pd_on_quad_points_cpu,
 )
+from pymatchseries.utils import CUPY_IS_INSTALLED, cp
 
 RTOL = 1e-6
 

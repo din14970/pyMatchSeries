@@ -1,18 +1,20 @@
 from __future__ import annotations
-from typing import TypeVar, Mapping, Callable, Type, Iterator, Tuple, Union
+
 from types import ModuleType
+from typing import Callable, Iterator, Mapping, Tuple, Union
 
 import dask.array as da
 import numpy as np
 import scipy
-import scipy.sparse as sparse
 import scipy.ndimage as ndimage
+import scipy.sparse as sparse
 
 try:
     import cupy as cp
+    import cupyx.scipy.ndimage as cndimage
     import cupyx.scipy.sparse as csparse
     import cupyx.scipy.sparse.linalg as clinalg
-    import cupyx.scipy.ndimage as cndimage
+
     CUPY_IS_INSTALLED = True
 except ImportError:
     cp = None
@@ -21,9 +23,9 @@ except ImportError:
     CUPY_IS_INSTALLED = False
 
 
-ArrayType = TypeVar("ArrayType", sparse.spmatrix, csparse.spmatrix, np.ndarray, cp.ndarray)
-DenseArrayType = TypeVar("DenseArrayType", np.ndarray, cp.ndarray)
-SparseMatrixType = TypeVar("SparseMatrixType", sparse.spmatrix, csparse.spmatrix)
+ArrayType = Union[sparse.spmatrix, csparse.spmatrix, np.ndarray, cp.ndarray]
+DenseArrayType = Union[np.ndarray, cp.ndarray]
+SparseMatrixType = Union[sparse.spmatrix, csparse.spmatrix]
 
 
 def mean(images: DenseArrayType) -> DenseArrayType:
@@ -44,7 +46,7 @@ def to_host(array: DenseArrayType) -> np.ndarray:
     elif isinstance(array, np.ndarray):
         return array
     else:
-        raise ValueError(f"Array type is {type(array)}, must be {DenseArrayType}.")
+        raise ValueError(f"Array type is {type(array)}, must be array.")
 
 
 def to_device(array: DenseArrayType) -> cp.ndarray:
@@ -53,7 +55,7 @@ def to_device(array: DenseArrayType) -> cp.ndarray:
     elif isinstance(array, np.ndarray):
         return cp.asarray(array)
     else:
-        raise ValueError(f"Array type is {type(array)}, must be {DenseArrayType}.")
+        raise ValueError(f"Array type is {type(array)}, must be array.")
 
 
 def get_array_type(
@@ -72,9 +74,9 @@ def displacement_to_coordinates(
     displacement: DenseArrayType,
 ) -> DenseArrayType:
     dp = get_dispatcher(displacement)
-    grid_shape = displacement.shape[1:]
+    grid_shape = (displacement.shape[1], displacement.shape[2])
     scaling_factor = get_grid_scaling_factor(grid_shape)
-    identity = dp.mgrid[0: grid_shape[0], 0: grid_shape[1]].astype(displacement.dtype)
+    identity = dp.mgrid[0 : grid_shape[0], 0 : grid_shape[1]].astype(displacement.dtype)
     return displacement / scaling_factor + identity
 
 
@@ -101,7 +103,7 @@ def map_coordinates(
 def create_image_pyramid(
     image: DenseArrayType,
     n_levels: int,
-    downscale_factor: float = 2.,
+    downscale_factor: float = 2.0,
     **kwargs,
 ) -> Iterator[DenseArrayType]:
     """Create an iterator of an image resized by a constant factor"""
@@ -114,7 +116,7 @@ def create_image_pyramid(
     for level in reversed(range(n_levels)):
         yield ndi.zoom(
             image,
-            sf ** level,
+            sf**level,
             order=kwargs.pop("order", 1),
             **kwargs,
         )
@@ -130,9 +132,7 @@ def resize_image_stack(
     ndi = get_ndimage_module(dp)
     original_shape = image_stack.shape
     new_shape = (image_stack.shape[0], *new_size)
-    zoom = tuple(
-        new / original for new, original in zip(new_shape, original_shape)
-    )
+    zoom = tuple(new / original for new, original in zip(new_shape, original_shape))
     output = dp.empty(new_shape, image_stack.dtype)
     ndi.zoom(
         image_stack,
@@ -162,7 +162,7 @@ def get_dispatcher(array: DenseArrayType) -> ModuleType:
     elif isinstance(array, np.ndarray):
         return np
     else:
-        raise ValueError(f"Array type is {type(array)}, must be {DenseArrayType}.")
+        raise ValueError(f"Array type is {type(array)}, must be array.")
 
 
 def get_sparse_module(dispatcher: ModuleType) -> ModuleType:
@@ -197,6 +197,9 @@ class Matrix:
         "csr": csparse.csr_matrix,
     }
 
+    def __init__(self, matrix: ArrayType) -> None:
+        raise NotImplementedError("The array module could not be determined")
+
     @property
     def module(self) -> ModuleType:
         raise NotImplementedError("The array module could not be determined")
@@ -207,7 +210,7 @@ class Matrix:
         return matrix_type(matrix)
 
     @classmethod
-    def get_matrix_type(cls, matrix: ArrayType) -> Type[Matrix]:
+    def get_matrix_type(cls, matrix: ArrayType) -> type[Matrix]:
         if CUPY_IS_INSTALLED and isinstance(matrix, cp.ndarray):
             return CupyMatrix
         elif isinstance(matrix, np.ndarray):
@@ -217,7 +220,7 @@ class Matrix:
         elif isinstance(matrix, sparse.spmatrix):
             return SparseNumpyMatrix
         else:
-            raise ValueError(f"Array type is {type(matrix)}, must be {ArrayType}.")
+            raise ValueError(f"Array type is {type(matrix)}, must be array.")
 
     def to_host(self) -> Matrix:
         return self
@@ -239,13 +242,12 @@ class Matrix:
 
 
 class NumpyMatrix(Matrix):
-
     def __init__(self, matrix: np.ndarray) -> None:
         self.data = matrix
 
     @property
     def module(self) -> ModuleType:
-        raise np
+        return np
 
     def to_device(self) -> CupyMatrix:
         if not CUPY_IS_INSTALLED:
@@ -253,7 +255,7 @@ class NumpyMatrix(Matrix):
         return CupyMatrix(cp.array(self.data))
 
     def to_sparse(self, sparse_type: str = "coo") -> SparseNumpyMatrix:
-        sparse_array = self._to_sparse_methods[sparse_type](self.data)
+        sparse_array = self._to_sparse_methods_cpu[sparse_type](self.data)
         return SparseNumpyMatrix(sparse_array)
 
     def solve(self, b: np.ndarray) -> np.ndarray:
@@ -266,11 +268,10 @@ class NumpyMatrix(Matrix):
         MtM = M_t.dot(M)
         Mtb = M_t.dot(b)
         # MtM will always be a positive definite matrix
-        return scipy.linalg.solve(MtM, Mtb, assume_a='pos')
+        return scipy.linalg.solve(MtM, Mtb, assume_a="pos")
 
 
 class CupyMatrix(Matrix):
-
     def __init__(self, matrix: cp.ndarray) -> None:
         self.data = matrix
 
@@ -281,8 +282,8 @@ class CupyMatrix(Matrix):
     def to_host(self) -> NumpyMatrix:
         return NumpyMatrix(cp.asnumpy(self.data))
 
-    def to_sparse(self, sparse_type: str = "coo") -> SparseNumpyMatrix:
-        sparse_array = self._to_sparse_methods[sparse_type](self.data)
+    def to_sparse(self, sparse_type: str = "coo") -> SparseCupyMatrix:
+        sparse_array = self._to_sparse_methods_gpu[sparse_type](self.data)
         return SparseCupyMatrix(sparse_array)
 
     def solve(self, b: np.ndarray) -> np.ndarray:
@@ -298,7 +299,6 @@ class CupyMatrix(Matrix):
 
 
 class SparseNumpyMatrix(Matrix):
-
     def __init__(self, matrix: sparse.spmatrix) -> None:
         self.data = matrix
 
@@ -338,6 +338,9 @@ class SparseNumpyMatrix(Matrix):
             indptr = cp.array(matrix.indptr)
             return SparseCupyMatrix(csparse.csc_matrix((data, indices, indptr)))
 
+        else:
+            raise RuntimeError("Unrecognized sparse matrix format.")
+
     def solve(self, b: np.ndarray) -> np.ndarray:
         return sparse.linalg.spsolve(self.data, b)
 
@@ -351,7 +354,6 @@ class SparseNumpyMatrix(Matrix):
 
 
 class SparseCupyMatrix(Matrix):
-
     def __init__(self, matrix: csparse.spmatrix) -> None:
         self.data = matrix
 
@@ -388,6 +390,9 @@ class SparseCupyMatrix(Matrix):
             indices = cp.asnumpy(matrix.indices)
             indptr = cp.asnumpy(matrix.indptr)
             return SparseNumpyMatrix(sparse.csc_matrix((data, indices, indptr)))
+
+        else:
+            raise RuntimeError("Unrecognized sparse matrix format.")
 
     def solve(self, b: cp.ndarray) -> cp.ndarray:
         return clinalg.spsolve(self.data, b)

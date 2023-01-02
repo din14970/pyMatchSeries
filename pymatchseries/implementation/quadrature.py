@@ -1,10 +1,10 @@
-from typing import Tuple
-from types import ModuleType
+from functools import cached_property
 from math import prod, sqrt
+from types import ModuleType
+from typing import Tuple
 
 import numpy as np
 from numba import njit, prange
-from functools import cached_property
 
 from pymatchseries.utils import DenseArrayType, get_grid_scaling_factor
 
@@ -20,7 +20,7 @@ class Quadrature2D:
         2D quadrature point representation to approximate the integral or
         gradient of a function F(x, y)
         """
-        self._number_of_points = number_of_points ** 2
+        self._number_of_points = number_of_points**2
         if number_of_points == 2:
             self._points = self._get_gauss_quad_points_2(dispatcher)
             self._weight = self._get_gauss_quad_weights_2(dispatcher)
@@ -43,6 +43,7 @@ class Quadrature2D:
                 evaluate_at_quad_points_gpu,
                 evaluate_pd_on_quad_points_gpu,
             )
+
             self.evaluate_function = evaluate_at_quad_points_gpu
             self.evaluate_pd_function = evaluate_pd_on_quad_points_gpu
 
@@ -102,7 +103,7 @@ class Quadrature2D:
     @cached_property
     def quadrature_point_weights(self) -> DenseArrayType:
         """Quadrature point weights. Array shape is (K,)."""
-        return self._weight * (self.grid_scaling ** 2)
+        return self._weight * (self.grid_scaling**2)
 
     @cached_property
     def quadrature_point_weights_sqrt(self) -> DenseArrayType:
@@ -125,7 +126,7 @@ class Quadrature2D:
         return self._number_of_points
 
     @cached_property
-    def cell_grid_shape(self) -> Tuple[int, int]:
+    def cell_grid_shape(self) -> Tuple[int, int, int]:
         """((N-1), (M-1), K)"""
         return (
             self.grid_shape[0] - 1,
@@ -165,12 +166,14 @@ class Quadrature2D:
         wx2 = qx
         wy1 = 1 - qy
         wy2 = qy
-        return self.dispatcher.vstack([
-            wy1 * wx1,
-            wy1 * wx2,
-            wy2 * wx1,
-            wy2 * wx2,
-        ])
+        return self.dispatcher.vstack(
+            [
+                wy1 * wx1,
+                wy1 * wx2,
+                wy2 * wx1,
+                wy2 * wx2,
+            ]
+        )
 
     @cached_property
     def basis_f_at_points(self) -> DenseArrayType:
@@ -195,12 +198,14 @@ class Quadrature2D:
         qy = self.quadrature_points_y_coordinate
         one_minus_qx = 1 - qx
         one_minus_qy = 1 - qy
-        return self.dispatcher.vstack([
-            qx * qy,
-            one_minus_qx * qy,
-            qx * one_minus_qy,
-            one_minus_qx * one_minus_qy,
-        ])
+        return self.dispatcher.vstack(
+            [
+                qx * qy,
+                one_minus_qx * qy,
+                qx * one_minus_qy,
+                one_minus_qx * one_minus_qy,
+            ]
+        )
 
     @cached_property
     def dx_node_weights(self) -> DenseArrayType:
@@ -221,9 +226,10 @@ class Quadrature2D:
         """
         qy = self.quadrature_points_y_coordinate
         one_minus_qy = 1 - qy
-        return self.dispatcher.vstack(
-            [-one_minus_qy, one_minus_qy, -qy, qy]
-        ) / self.grid_scaling
+        return (
+            self.dispatcher.vstack([-one_minus_qy, one_minus_qy, -qy, qy])
+            / self.grid_scaling
+        )
 
     @cached_property
     def dy_node_weights(self) -> DenseArrayType:
@@ -244,9 +250,10 @@ class Quadrature2D:
         """
         qx = self.quadrature_points_x_coordinate
         one_minus_qx = 1 - qx
-        return self.dispatcher.vstack(
-            [-one_minus_qx, -qx, one_minus_qx, qx]
-        ) / self.grid_scaling
+        return (
+            self.dispatcher.vstack([-one_minus_qx, -qx, one_minus_qx, qx])
+            / self.grid_scaling
+        )
 
     @cached_property
     def basis_dfx_at_points(self) -> DenseArrayType:
@@ -269,12 +276,17 @@ class Quadrature2D:
         """
         qy = self.quadrature_points_y_coordinate
         one_minus_qy = 1 - qy
-        return self.dispatcher.vstack([
-            qy,
-            -qy,
-            one_minus_qy,
-            -one_minus_qy,
-        ]) / self.grid_scaling
+        return (
+            self.dispatcher.vstack(
+                [
+                    qy,
+                    -qy,
+                    one_minus_qy,
+                    -one_minus_qy,
+                ]
+            )
+            / self.grid_scaling
+        )
 
     @cached_property
     def basis_dfy_at_points(self) -> DenseArrayType:
@@ -297,12 +309,17 @@ class Quadrature2D:
         """
         qx = self.quadrature_points_x_coordinate
         one_minus_qx = 1 - qx
-        return self.dispatcher.vstack([
-            qx,
-            one_minus_qx,
-            -qx,
-            -one_minus_qx,
-        ]) / self.grid_scaling
+        return (
+            self.dispatcher.vstack(
+                [
+                    qx,
+                    one_minus_qx,
+                    -qx,
+                    -one_minus_qx,
+                ]
+            )
+            / self.grid_scaling
+        )
 
     @classmethod
     def _get_gauss_quad_points_2(
@@ -314,12 +331,7 @@ class Quadrature2D:
         """
         p = 1 / sqrt(3) / 2
         quads = dispatcher.array(
-            [
-                [-p, -p],
-                [p, -p],
-                [-p, p],
-                [p, p]
-            ],
+            [[-p, -p], [p, -p], [-p, p], [p, p]],
             dtype=dispatcher.float32,
         )
         quads += 0.5
@@ -373,10 +385,14 @@ class Quadrature2D:
         ----------
         http://users.metu.edu.tr/csert/me582/ME582%20Ch%2003.pdf
         """
-        return dispatcher.array(
-            [25, 40, 25, 40, 64, 40, 25, 40, 25],
-            dtype=dispatcher.float32,
-        ) / 81 / 4
+        return (
+            dispatcher.array(
+                [25, 40, 25, 40, 64, 40, 25, 40, 25],
+                dtype=dispatcher.float32,
+            )
+            / 81
+            / 4
+        )
 
 
 @njit(parallel=True)

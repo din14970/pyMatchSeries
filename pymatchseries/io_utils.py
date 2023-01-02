@@ -1,10 +1,11 @@
-from PIL import Image
-from pathlib import Path
+import bz2
 import concurrent.futures as cf
 import logging
 import os
-import bz2
+from pathlib import Path
+
 import numpy as np
+from PIL import Image
 
 
 def _save_frame_to_file(i, data, folder, prefix, digits, data_format="tiff"):

@@ -1,0 +1,9 @@
+name: pyMatchSeries
+channels:
+  - conda-forge
+dependencies:
+  - hyperspy
+  - cupy
+  - match-series
+  - numba
+  - pydantic
