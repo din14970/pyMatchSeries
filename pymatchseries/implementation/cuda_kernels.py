@@ -11,8 +11,11 @@ except ImportError:
     cuda = None
     float32 = None
 
-    def jit(f, *args, **kwargs):
-        return f
+    # see https://stackoverflow.com/questions/57774497
+    def jit(*args, **kwargs):
+        def decorator(f):
+            return f
+        return decorator
 
 
 TPB = 16
