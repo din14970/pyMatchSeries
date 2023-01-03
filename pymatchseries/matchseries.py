@@ -2,22 +2,23 @@
 Module that includes tools for converting experimental data into the
 file structure required for match-series
 """
-from subprocess import Popen, PIPE, STDOUT
+import json
 import logging
-from pathlib import Path
 import os
-import numpy as np
-import hyperspy.api as hs
-from tabulate import tabulate
-import warnings
-from scipy import ndimage
+import shutil
 import uuid
+import warnings
+from pathlib import Path
+from subprocess import PIPE, STDOUT, Popen
+
 import dask.array as da
+import h5py
+import hyperspy.api as hs
+import numpy as np
 from dask import delayed
 from dask.diagnostics import ProgressBar
-import shutil
-import json
-import h5py
+from scipy import ndimage
+from tabulate import tabulate
 
 from pymatchseries import config_tools as ctools
 from pymatchseries import io_utils as ioutls
@@ -285,8 +286,13 @@ class MatchSeries:
         self.__update_metadata_file()
 
     def __run_match_series(self):
-        """Run match series using the config file and print all output"""
-        # from https://github.com/takluyver/rt2-workshop-jupyter/blob/e7fde6565e28adf31a0f9003094db70c3766bd6d/Subprocess%20output.ipynb
+        """Run match series using the config file and print all output
+
+        See also
+        --------
+        * https://github.com/takluyver/rt2-workshop-jupyter/blob/
+        e7fde6565e28adf31a0f9003094db70c3766bd6d/Subprocess%20output.ipynb
+        """
         cmd = ["matchSeries", f"{self.config_file_path}"]
         p = Popen(cmd, stdout=PIPE, stderr=STDOUT, cwd=self.path)
         while True:

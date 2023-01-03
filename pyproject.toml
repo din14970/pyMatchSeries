@@ -1,0 +1,43 @@
+# Tool configuration
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39']
+include = '\.pyi?$'
+exclude = "venv"
+
+[tool.isort]
+profile = "black"
+skip_gitignore = true
+
+[tool.mypy]
+show_error_codes = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+# disallow_untyped_defs = true
+ignore_missing_imports = true
+exclude = ["venv", "docs", "setup.py", "tests"]
+warn_unused_configs = true
+# check_untyped_defs = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra --import-mode=importlib"
+testpaths = [
+    "tests",
+]
+pythonpath = [
+  ".", "pymatchseries",
+]
+xfail_strict = true
+
+[coverage.run]
+source = "pymatchseries"
+include = "*/pymatchseries/*"
+omit = [ 
+    "*/pymatchseries/__init__.py",
+]
+relative_files = true
+
+[coverage.report]
+precision=2
