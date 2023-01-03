@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import ModuleType
-from typing import Callable, Iterator, Mapping, Tuple, Union
+from typing import TYPE_CHECKING, Callable, Iterator, Mapping, Tuple, Union
 
 import dask.array as da
 import numpy as np
@@ -18,14 +18,20 @@ try:
     CUPY_IS_INSTALLED = True
 except ImportError:
     cp = None
+    cndimage = None
     csparse = None
     clinalg = None
     CUPY_IS_INSTALLED = False
 
 
-ArrayType = Union[sparse.spmatrix, csparse.spmatrix, np.ndarray, cp.ndarray]
-DenseArrayType = Union[np.ndarray, cp.ndarray]
-SparseMatrixType = Union[sparse.spmatrix, csparse.spmatrix]
+if TYPE_CHECKING:
+    ArrayType = Union[sparse.spmatrix, np.ndarray, csparse.spmatrix, cp.ndarray]
+    DenseArrayType = Union[np.ndarray, cp.ndarray]
+    SparseMatrixType = Union[sparse.spmatrix, csparse.spmatrix]
+else:
+    ArrayType = None
+    DenseArrayType = None
+    SparseMatrixType = None
 
 
 def mean(images: DenseArrayType) -> DenseArrayType:

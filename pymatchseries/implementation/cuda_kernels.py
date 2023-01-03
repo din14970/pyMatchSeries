@@ -1,7 +1,12 @@
 from typing import Tuple
 
-import cupy as cp
-from numba import cuda, float32
+try:
+    import cupy as cp
+    from numba import cuda, float32
+except ImportError:
+    cp = None
+    cuda = None
+    float32 = None
 
 TPB = 16
 TPB1 = TPB + 1
