@@ -4,11 +4,16 @@ try:
     import cupy as cp
     from cupy import ndarray as carray
     from numba import cuda, float32
+    from numba.cuda import jit
 except ImportError:
     cp = None
     carray = None
     cuda = None
     float32 = None
+
+    def jit(f, *args, **kwargs):
+        return f
+
 
 TPB = 16
 TPB1 = TPB + 1
@@ -150,7 +155,7 @@ def _get_default_grid_dims_2D(
     return bpg, tpb
 
 
-@cuda.jit
+@jit
 def _evaluate_gpu_kernel(
     image: carray,
     coordinates: carray,
@@ -183,7 +188,7 @@ def _evaluate_gpu_kernel(
     )
 
 
-@cuda.jit
+@jit
 def _evaluate_gradient_gpu_kernel(
     image: carray,
     coordinates: carray,
@@ -216,7 +221,7 @@ def _evaluate_gradient_gpu_kernel(
         ) * wy
 
 
-@cuda.jit(device=True)
+@jit(device=True)
 def _get_interpolation_parameters(
     coordinate: float,
     axis_size: int,
@@ -241,7 +246,7 @@ def _get_interpolation_parameters(
     return is_valid, reference_gridpoint, weight
 
 
-@cuda.jit
+@jit
 def _evaluate_at_quad_points_kernel(
     array: carray, node_weights: carray, output: carray
 ) -> None:
@@ -279,7 +284,7 @@ def _evaluate_at_quad_points_kernel(
         )
 
 
-@cuda.jit
+@jit
 def _evaluate_pd_on_quad_points_kernel(
     quadrature_values: carray,
     quad_weights_sqrt: carray,
