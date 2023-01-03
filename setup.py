@@ -4,10 +4,10 @@ with open("README.md") as f:
     readme = f.read()
 
 with open("requirements.in") as f:
-    requirements = f.read.splitlines()
+    requirements = f.read().splitlines()
 
 with open("dev-requirements.in") as f:
-    dev_requirements = f.read.splitlines()
+    dev_requirements = f.read().splitlines()
 
 # Projects with optional features for building the documentation and running
 # tests. From setuptools:
