@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: pip install -U -e .'[dev]'; conda install match-series
       - name: Run tests
-        run: pytest --cov=pymatchseries --pyargs pymatchseries
+        run: pytest --cov=pymatchseries -vv
       - name: Generate line coverage
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: coverage report --show-missing
