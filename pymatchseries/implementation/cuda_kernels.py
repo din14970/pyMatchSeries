@@ -2,9 +2,11 @@ from typing import Tuple
 
 try:
     import cupy as cp
+    from cupy import ndarray as carray
     from numba import cuda, float32
 except ImportError:
     cp = None
+    carray = None
     cuda = None
     float32 = None
 
@@ -13,9 +15,9 @@ TPB1 = TPB + 1
 
 
 def interpolate_gpu(
-    image: cp.ndarray,
-    coordinates: cp.ndarray,
-) -> cp.ndarray:
+    image: carray,
+    coordinates: carray,
+) -> carray:
     """Evaluate image at non-integer coordinates with linear interpolation
 
     Parameters
@@ -39,9 +41,9 @@ def interpolate_gpu(
 
 
 def interpolate_gradient_gpu(
-    image: cp.ndarray,
-    coordinates: cp.ndarray,
-) -> cp.ndarray:
+    image: carray,
+    coordinates: carray,
+) -> carray:
     """Evaluate image gradient at non-integer coordinates with linear interpolation
 
     Parameters
@@ -66,9 +68,9 @@ def interpolate_gradient_gpu(
 
 
 def evaluate_at_quad_points_gpu(
-    array: cp.ndarray,
-    node_weights: cp.ndarray,
-) -> cp.ndarray:
+    array: carray,
+    node_weights: carray,
+) -> carray:
     """Get the value of an array interpolated at each quadrature point
 
     Parameters
@@ -93,10 +95,10 @@ def evaluate_at_quad_points_gpu(
 
 
 def evaluate_pd_on_quad_points_gpu(
-    quadrature_values: cp.ndarray,
-    quad_weights_sqrt: cp.ndarray,
-    node_weights: cp.ndarray,
-) -> Tuple[cp.ndarray, cp.ndarray, cp.ndarray]:
+    quadrature_values: carray,
+    quad_weights_sqrt: carray,
+    node_weights: carray,
+) -> Tuple[carray, carray, carray]:
     """Get a sparse representation of each node contribution to each quadrature point
 
     This represents a matrix of size (total number of quadrature points,
@@ -137,7 +139,7 @@ def evaluate_pd_on_quad_points_gpu(
 
 
 def _get_default_grid_dims_2D(
-    array: cp.ndarray,
+    array: carray,
     tpb: Tuple[int, int] = (TPB, TPB),
 ) -> Tuple[Tuple[int, int], Tuple[int, int]]:
     """Helper function for calculating grid dimensions for executing a CUDA kernel"""
@@ -150,9 +152,9 @@ def _get_default_grid_dims_2D(
 
 @cuda.jit
 def _evaluate_gpu_kernel(
-    image: cp.ndarray,
-    coordinates: cp.ndarray,
-    result: cp.ndarray,
+    image: carray,
+    coordinates: carray,
+    result: carray,
 ) -> None:
     """Evaluate image at non-integer coordinates with linear interpolation"""
     row, column = cuda.grid(2)
@@ -183,9 +185,9 @@ def _evaluate_gpu_kernel(
 
 @cuda.jit
 def _evaluate_gradient_gpu_kernel(
-    image: cp.ndarray,
-    coordinates: cp.ndarray,
-    result: cp.ndarray,
+    image: carray,
+    coordinates: carray,
+    result: carray,
 ) -> None:
     """Evaluate image gradient at non-integer coordinates with linear interpolation"""
     row, column = cuda.grid(2)
@@ -241,7 +243,7 @@ def _get_interpolation_parameters(
 
 @cuda.jit
 def _evaluate_at_quad_points_kernel(
-    array: cp.ndarray, node_weights: cp.ndarray, output: cp.ndarray
+    array: carray, node_weights: carray, output: carray
 ) -> None:
     r, c = cuda.grid(2)
     tx = cuda.threadIdx.x
@@ -279,12 +281,12 @@ def _evaluate_at_quad_points_kernel(
 
 @cuda.jit
 def _evaluate_pd_on_quad_points_kernel(
-    quadrature_values: cp.ndarray,
-    quad_weights_sqrt: cp.ndarray,
-    node_weights: cp.ndarray,
-    data: cp.ndarray,
-    rows: cp.ndarray,
-    cols: cp.ndarray,
+    quadrature_values: carray,
+    quad_weights_sqrt: carray,
+    node_weights: carray,
+    data: carray,
+    rows: carray,
+    cols: carray,
 ) -> None:
     i, j = cuda.grid(2)
 

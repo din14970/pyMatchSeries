@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import ModuleType
-from typing import TYPE_CHECKING, Callable, Iterator, Mapping, Tuple, Union
+from typing import TYPE_CHECKING, Callable, Dict, Iterator, Mapping, Tuple, Union
 
 import dask.array as da
 import numpy as np
@@ -197,11 +197,11 @@ class Matrix:
         "csr": sparse.csr_matrix,
     }
 
-    _to_sparse_methods_gpu: Mapping[str, Callable] = {
-        "coo": csparse.coo_matrix,
-        "csc": csparse.csc_matrix,
-        "csr": csparse.csr_matrix,
-    }
+    _to_sparse_methods_gpu: Dict[str, Callable] = {}
+    if CUPY_IS_INSTALLED:
+        _to_sparse_methods_gpu["coo"] = csparse.coo_matrix
+        _to_sparse_methods_gpu["csc"] = csparse.csc_matrix
+        _to_sparse_methods_gpu["csr"] = csparse.csr_matrix
 
     def __init__(self, matrix: ArrayType) -> None:
         raise NotImplementedError("The array module could not be determined")
