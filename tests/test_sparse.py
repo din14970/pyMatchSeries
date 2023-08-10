@@ -61,6 +61,20 @@ def test_csr_sort() -> None:
     np.testing.assert_equal(d, d_test)
 
 
+def test_csr_dot_vec() -> None:
+    shape = (100, 110)
+    r, c, d = _random_sparse_rand(shape, 0.1)
+    coo = _create_coo(shape, r, c, d)
+    A_csr = coo.tocsr()
+    vec = np.random.rand(shape[1])
+
+    expected = A_csr.dot(vec)
+
+    result = psparse.csr_dot_vec(A_csr.indptr, A_csr.indices, A_csr.data, vec)
+
+    np.testing.assert_allclose(result, expected, 1e-6)
+
+
 def test_coo_to_csr() -> None:
     shape = (100, 110)
     r, c, d = _random_sparse_rand(shape, 0.1)
@@ -79,3 +93,65 @@ def test_coo_to_csr() -> None:
     np.testing.assert_equal(r_csr, A_csr.indptr)
     np.testing.assert_equal(c_csr, A_csr.indices)
     np.testing.assert_equal(d_csr, A_csr.data)
+
+
+def test_csr_matmat() -> None:
+    shape1 = (100, 110)
+    r1, c1, d1 = _random_sparse_rand(shape1, 0.1)
+
+    r1_csr, c1_csr, d1_csr = psparse.coo_to_csr(
+        shape1[0],
+        rows=r1,
+        columns=c1,
+        data=d1,
+    )
+
+    shape2 = (110, 200)
+    r2, c2, d2 = _random_sparse_rand(shape2, 0.1)
+
+    r2_csr, c2_csr, d2_csr = psparse.coo_to_csr(
+        shape2[0],
+        rows=r2,
+        columns=c2,
+        data=d2,
+    )
+
+    max_nnz = psparse.csr_matmat_maxnnz(
+        n_row=shape1[0],
+        n_col=shape2[1],
+        row_ptr_a=r1_csr,
+        columns_a=c1_csr,
+        row_ptr_b=r2_csr,
+        columns_b=c2_csr,
+    )
+    rc_csr = np.empty(shape1[0] + 1, dtype=np.int32)
+    cc_csr = np.empty(max_nnz, dtype=np.int32)
+    dc_csr = np.empty(max_nnz, dtype=np.float32)
+
+    psparse.csr_matmat(
+        n_row=shape1[0],
+        n_col=shape2[1],
+        row_ptr_a=r1_csr,
+        columns_a=c1_csr,
+        data_a=d1_csr,
+        row_ptr_b=r2_csr,
+        columns_b=c2_csr,
+        data_b=d2_csr,
+        row_ptr_c=rc_csr,
+        columns_c=cc_csr,
+        data_c=dc_csr,
+    )
+
+    psparse.csr_sort_indices(rc_csr, cc_csr, dc_csr)
+
+    # using scipy to compute the expected output
+    coo_1 = _create_coo(shape1, r1, c1, d1)
+    coo_2 = _create_coo(shape2, r2, c2, d2)
+    A_csr = coo_1.tocsr()
+    B_csr = coo_2.tocsr()
+    expected = A_csr @ B_csr
+    expected.sort_indices()
+
+    np.testing.assert_equal(rc_csr, expected.indptr)
+    np.testing.assert_equal(cc_csr, expected.indices)
+    np.testing.assert_allclose(dc_csr, expected.data, rtol=1e-6)

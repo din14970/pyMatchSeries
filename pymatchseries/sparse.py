@@ -1,7 +1,7 @@
 from typing import Tuple
 
 import numpy as np
-from numba import njit
+from numba import njit, float32, int32
 from numpy.typing import NDArray
 
 from pymatchseries.sorting import introsort_csr
@@ -147,17 +147,19 @@ def csr_matmat(
     Notes
     -----
     Numba implementation of the C++ version found in the Scipy source code
+    sparse._sparsetools.csr_matmat. Benchmarking shows this implementation
+    is about 10-12% slower.
     """
     next = np.full(n_col, fill_value=-1, dtype=np.int32)
     sums = np.zeros(n_col, dtype=np.float32)
 
-    nnz = 0
+    nnz = int32(0)
 
-    row_ptr_c[0] = 0
+    row_ptr_c[0] = int32(0)
 
     for row_a in range(n_row):
-        head = -2
-        length = 0
+        head = int32(-2)
+        length = int32(0)
 
         for nze_index_a in range(row_ptr_a[row_a], row_ptr_a[row_a + 1]):
             col_a = columns_a[nze_index_a]
@@ -169,22 +171,22 @@ def csr_matmat(
 
                 sums[col_b] += value_a * value_b
 
-                if next[col_b] == -1:
+                if next[col_b] == int32(-1):
                     next[col_b] = head
                     head = col_b
-                    length += 1
+                    length += int32(1)
 
         for _ in range(length):
-            if sums[head] != 0:
+            if sums[head] != float32(0):
                 columns_c[nnz] = head
                 data_c[nnz] = sums[head]
-                nnz += 1
+                nnz += int32(1)
 
             temp = head
             head = next[head]
 
-            next[temp] = -1  # clear arrays again
-            sums[temp] = 0
+            next[temp] = int32(-1)  # clear arrays again
+            sums[temp] = float32(0)
 
         row_ptr_c[row_a + 1] = nnz
 
@@ -222,27 +224,25 @@ def csr_matmat_maxnnz(
 
     Notes
     -----
-    Numba implementation of the C++ version found in the Scipy source code
+    Numba implementation of the C++ version found in the Scipy source code.
+    This implementation is about 70-80% slower!
     """
     mask = np.full(n_col, -1, dtype=np.int32)
 
-    nnz = 0
+    nnz = int32(0)
 
     for row_a in range(n_row):
-        row_nnz = 0
+        row_nnz = int32(0)
 
         for nze_index_a in range(row_ptr_a[row_a], row_ptr_a[row_a + 1]):
-            column_a = columns_a[nze_index_a]  # = row to look for elements in B
+            column_a = columns_a[nze_index_a]
 
             for nze_index_b in range(row_ptr_b[column_a], row_ptr_b[column_a + 1]):
                 column_b = columns_b[nze_index_b]
 
-                # if a column in B already has a matching row in A, we
-                # should not count it, because these contributions are
-                # summed. This is the purpose of the mask.
                 if mask[column_b] != row_a:
                     mask[column_b] = row_a
-                    row_nnz += 1
+                    row_nnz += int32(1)
 
         nnz += row_nnz
 
@@ -260,14 +260,15 @@ def csr_dot_vec(
     a dense column vector.
     """
     # About equally fast as scipy implementation
-    result = np.empty(
-        row_ptr.shape[0] - 1,
+    n_rows = row_ptr.shape[0] - 1
+    result = np.zeros(
+        n_rows,
         dtype=np.float32,
     )
     # sum together segments
-    for i in range(result.shape[0]):
-        for column_index in range(row_ptr[i], row_ptr[i + 1]):
-            result[i] += b[columns[column_index]] * data[column_index]
+    for i in range(n_rows):
+        for nnz_index in range(row_ptr[i], row_ptr[i + 1]):
+            result[i] += b[columns[nnz_index]] * data[nnz_index]
 
     return result
 
