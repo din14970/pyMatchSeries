@@ -474,7 +474,7 @@ def evaluate_pd_on_quad_points_cpu(
         dtype=np.int32,
     )
     for i in prange(quadrature_values.shape[0]):
-        for j in prange(quadrature_values.shape[1]):
+        for j in range(quadrature_values.shape[1]):
             # index in flattened 2D array
             abs_2D = j + i * quadrature_values.shape[1]
             col_base_index = abs_2D + i

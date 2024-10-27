@@ -1,20 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import dataclass as classic_dataclass
+from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Callable, Iterator, Mapping, Optional
 
 import dask.array as da
 from hyperspy.signals import ComplexSignal2D, Signal2D
-from pydantic.dataclasses import dataclass
 from tqdm.auto import tqdm
 
+from pymatchseries.implementation.configuration import JNRRConfig
 from pymatchseries.implementation.objective_functions import (
     RegistrationObjectiveFunction,
 )
 from pymatchseries.implementation.solvers import root_gauss_newton
 from pymatchseries.utils import (
-    DenseArrayType,
     create_image_pyramid,
     displacement_to_coordinates,
     get_dispatcher,
@@ -25,153 +26,159 @@ from pymatchseries.utils import (
     to_device,
     to_host,
 )
+from numpy.typing import NDArray
 
 
-class _DataclassConfig:
-    validate_assignment = True
+@dataclass
+class JNRRResults:
+    deformations: ComplexSignal2D
+    corrected_images: Signal2D
 
 
-@dataclass(config=_DataclassConfig)
-class Regularization:
-    constant_start: float = 0.1
-    factor_level: float = 1.0
-    factor_stage: float = 0.1
-
-
-@dataclass(config=_DataclassConfig)
-class ObjectiveConfig:
-    number_of_quadrature_points: int = 3
-    cache_derivative_of_regularizer: bool = True
-
-
-@dataclass(config=_DataclassConfig)
-class SolverConfig:
-    max_iterations: int = 50
-    stop_epsilon: float = 0.0
-    start_step: float = 1.0
-    show_progress: bool = True
-
-
-@dataclass(config=_DataclassConfig)
-class IOConfig:
-    store_each_stage: bool = True
-    store_each_image_comparison: bool = True
-    store_each_level: bool = False
-
-
-@dataclass(config=_DataclassConfig)
-class JNNRConfig:
-    device: str = "auto"
-    n_levels: int = 3
-    n_stages: int = 2
-    reference_update_function: str = "median"
-    regularization: Regularization = Regularization()
-    objective: ObjectiveConfig = ObjectiveConfig()
-    solver: SolverConfig = SolverConfig()
-    io: IOConfig = IOConfig()
-
-
-@classic_dataclass
-class JNNRState:
+@dataclass
+class JNRRState:
     images: Signal2D
-    reference_image: Optional[DenseArrayType] = None
-    deformations: Optional[ComplexSignal2D] = None
-    completed_stages: int = 0
+    config: JNRRConfig
+    reference_image_index: int
+    stage_index: int
 
     @classmethod
-    def load(cls, filepath: str = "saved_jnnr_calculation") -> JNNRState:
+    def new(
+        cls,
+        images: Signal2D,
+    ) -> JNRRState:
+        return JNRRState(
+            images=images,
+            config=JNRRConfig.default(),
+            reference_image_index=0,
+            stage_index=0,
+        )
+
+    @classmethod
+    def load(cls, filepath: Path) -> JNRRState:
         raise NotImplementedError()
 
-    def save(self) -> None:
+    def save(self, filepath: Path) -> None:
         raise NotImplementedError()
 
 
-class JNRR:
+class JNRRJob:
+    """Joint non rigid registration API"""
+
     def __init__(
         self,
-        images: Signal2D,
+        state: JNRRState,
     ) -> None:
-        self._validate_images(images)
-        self.__config = JNNRConfig()
-        self.__state = JNNRState(images)
+        self._state = state
+
+    @classmethod
+    def from_signal(
+        cls,
+        signal: Signal2D,
+    ) -> JNRRJob:
+        """Start a JNRR calculation from a Hyperspy Signal2D object"""
+        cls._validate_signal(signal)
+        state = JNRRState.new(signal)
+        return JNRRJob(state)
 
     @classmethod
     def load(
         cls,
         filepath: Path,
-    ) -> JNRR:
-        raise NotImplementedError()
+    ) -> JNRRJob:
+        state = JNRRState.load(filepath)
+        return cls(state)
 
-    def save(self) -> None:
-        raise NotImplementedError()
+    def save(
+        self,
+        filepath: Path,
+    ) -> None:
+        self._state.save(filepath)
 
     @property
     def images(self) -> Signal2D:
-        return self.state.images
+        return self._state.images
 
-    @property
-    def state(self) -> JNNRState:
-        return self.__state
+    @cached_property
+    def dispatcher(self) -> ModuleType:
+        return get_dispatcher(self.images.data)
 
     def run(self) -> None:
-        L = self.config.regularization.constant_start
+        L = self.config.regularization.parameter_value_at_start
         n_stages = self.config.n_stages
+        dp = self.dispatcher
+
+        displacements = dp.zeros((2, *self.images.shape), dtype=dp.float32)
+        corrected_images = dp.empty(self.images.shape, dtype=dp.float32)
 
         for stage in range(n_stages):
-            displacements = []
-            corrected_images = []
 
             progress = tqdm(total=self.number_of_images)
 
+            image_pyramid_reference = list(create_image_pyramid(
+                self.state.reference_image,
+                n_levels,
+                downscale_factor=2.0,
+            ))
+
+            # Registration - finding all displacements
             with progress:
                 progress.set_description(
                     f"Stage: {stage + 1}, Image: 0/{self.number_of_images}"
                 )
-                # Registration - finding all displacements
                 for i, image in enumerate(
                     self._get_image_iterator(
                         self.images,
                         device=self.config.device,
                     )
                 ):
-                    dp = get_dispatcher(image)
                     if self.state.reference_image is None:
                         self.state.reference_image = image
-                        displacement = dp.zeros((2, *image.shape), dtype=image.dtype)
-                        displacements.append(
-                            self._displacement_to_complex(displacement)
-                        )
-                        corrected_images.append(image)
+                        corrected_images[i] = image
                         progress.update(n=1)
                         continue
 
-                    displacement = self._get_multilevel_displacement_field(
+                    im_def_pyramid = create_image_pyramid(
+                        image_deformed,
+                        n_levels,
+                        downscale_factor=2.0,
+                    )
+
+                    displacements[:, i, ...] = self._get_multilevel_displacement_field(
                         image,
                         self.state.reference_image,
                         regularization_constant=L,
                         configuration=self.config,
                     )
-                    displacements.append(self._displacement_to_complex(displacement))
 
-                    corrected_image = self._apply_displacement(image, displacement)
-                    corrected_images.append(corrected_image)
+                    corrected_images[i, ...] = self._apply_displacement(
+                        image,
+                        displacements[:, i, ...],
+                    )
 
                     progress.set_description(
                         f"Stage: {stage + 1}, Image: {i + 1}/{self.number_of_images}"
                     )
                     progress.update(n=1)
 
-                # Bias correction??
-
-                self.state.reference_image = self._aggregate_stack(
-                    dp.stack(corrected_images),
-                )
-                self.state.deformations = ComplexSignal2D(dp.stack(corrected_images))
-                self.state.completed_stages = stage + 1
+            if stage == 0:
                 L *= self.config.regularization.factor_stage
 
+            # Bias correction step
+
+            self.state.reference_image = self._aggregate_stack(corrected_images)
+            self.state.completed_stages = stage + 1
+
+        self.state.deformations = ComplexSignal2D(
+            self._displacement_to_complex(displacements)
+        )
+        self.state.corrected_images = Signal2D(corrected_images)
+
     @classmethod
-    def _displacement_to_complex(cls, displacement: DenseArrayType) -> DenseArrayType:
+    def _displacement_to_complex(
+        cls,
+        displacement: NDArray,
+    ) -> NDArray:
         return displacement[1] + 1j * displacement[0]
 
     @property
@@ -188,8 +195,8 @@ class JNRR:
         return self.images.axes_manager.navigation_size
 
     @property
-    def config(self) -> JNNRConfig:
-        return self.__config
+    def config(self) -> JNRRConfig:
+        return self._state.config
 
     def configure(self, options: Mapping[str, Any]) -> None:
         """Provide configuration in a dictionary using dot notation"""
@@ -203,10 +210,10 @@ class JNRR:
             setattr(obj, key_part, value)
 
     @classmethod
-    def _validate_images(cls, images: Signal2D) -> None:
-        if not isinstance(images, Signal2D):
+    def _validate_signal(cls, signal: Signal2D) -> None:
+        if not isinstance(signal, Signal2D):
             raise ValueError("Images must be a HyperSpy Signal2D object.")
-        if images.axes_manager.navigation_dimension != 1:
+        if signal.axes_manager.navigation_dimension != 1:
             raise ValueError("Navigation dimension must be one dimensional.")
 
     @classmethod
@@ -214,7 +221,7 @@ class JNRR:
         cls,
         images: Signal2D,
         device: Optional[str] = None,
-    ) -> Iterator[DenseArrayType]:
+    ) -> Iterator[NDArray]:
         is_lazy = isinstance(images.data, da.Array)
 
         if device == "cpu":
@@ -236,9 +243,9 @@ class JNRR:
     @classmethod
     def _apply_displacement(
         cls,
-        image: DenseArrayType,
-        displacement: DenseArrayType,
-    ) -> DenseArrayType:
+        image: NDArray,
+        displacement: NDArray,
+    ) -> NDArray:
         return map_coordinates(
             image,
             displacement_to_coordinates(displacement),
@@ -247,24 +254,13 @@ class JNRR:
     @classmethod
     def _get_multilevel_displacement_field(
         cls,
-        image_deformed: DenseArrayType,
-        image_reference: DenseArrayType,
+        image_pyramid_deformed: Iterable[NDArray],
+        image_pyramid_reference: Iterable[NDArray],
         regularization_constant: float,
-        configuration: JNNRConfig,
-    ) -> DenseArrayType:
+        configuration: JNRRConfig,
+    ) -> NDArray:
         """Get the displacement field between two images by progressively scaling"""
         n_levels = configuration.n_levels
-
-        im_def_pyramid = create_image_pyramid(
-            image_deformed,
-            n_levels,
-            downscale_factor=2.0,
-        )
-        im_ref_pyramid = create_image_pyramid(
-            image_reference,
-            n_levels,
-            downscale_factor=2.0,
-        )
 
         displacement = None
 
@@ -299,12 +295,12 @@ class JNRR:
     @classmethod
     def _get_displacement_field(
         cls,
-        image_deformed: DenseArrayType,
-        image_reference: DenseArrayType,
+        image_deformed: NDArray,
+        image_reference: NDArray,
         regularization_constant: float,
-        configuration: JNNRConfig,
-        displacement_start: Optional[DenseArrayType] = None,
-    ) -> DenseArrayType:
+        configuration: JNRRConfig,
+        displacement_start: Optional[NDArray] = None,
+    ) -> NDArray:
         """Compare two images and get the optimized displacement field"""
         image_shape = image_deformed.shape
         objective_configuration = configuration.objective

@@ -4,22 +4,24 @@ import logging
 import warnings
 from typing import Callable
 
+from numpy.typing import NDArray
 from tqdm.auto import tqdm
 
-from pymatchseries.utils import ArrayType, DenseArrayType, Matrix, get_dispatcher
+from pymatchseries.utils import Matrix, get_dispatcher
 
 logger = logging.getLogger(__name__)
 
 
 def root_gauss_newton(
-    F: Callable[[DenseArrayType], DenseArrayType],
-    x0: DenseArrayType,
-    DF: Callable[[DenseArrayType], ArrayType],
+    F: Callable[[NDArray], NDArray],
+    x0: NDArray,
+    DF: Callable[[NDArray], Matrix],
+    lstsq_solve: Callable[[Matrix, NDArray], NDArray],
     max_iterations: int = 50,
     stop_epsilon: float = 0.0,
     start_step: float = 1.0,
     show_progress: bool = False,
-) -> DenseArrayType:
+) -> NDArray:
     """
     Implementation of Gauss-Newton iterative solver for sparse systems
 
@@ -31,12 +33,16 @@ def root_gauss_newton(
         Initial guess
     DF
         Function that returns the Jacobian of F
+    lstsq_solve
+        Function to solve the least squares problem for finding the step dx
     max_iterations
         Maximum number of iterations
     stop_epsilon
         Relative error change in a step at which to stop iteration
     start_step
         Initial step size
+    show_progress
+        Show a progress bar
 
     Returns
     -------
@@ -56,29 +62,28 @@ def root_gauss_newton(
         iterations = range(max_iterations)
 
     dp = get_dispatcher(x0)
-    matrix_type = None
+    dx = dp.empty_like(x)
 
     for i in iterations:
         matDF = DF(x)
-        if matrix_type is None:
-            matrix_type = Matrix.get_matrix_type(matDF)
-        dx = matrix_type(matDF).solve_lstsq(f)
+        dx[:] = lstsq_solve(matDF, f)
 
         if not dp.all(dp.isfinite(dx)):
             raise RuntimeError("Least squares solving failed.")
 
-        x -= dx
-        f = F(x)
+        # inplace modification to avoid allocation
+        x[:] -= dx
+        f[:] = F(x)
         updated_total_square_error = f.dot(f)
 
         if updated_total_square_error >= total_square_error:
             # If the target functional did not decrease with the update, try to
             # find a smaller step so that it does.
-            x += dx
-            dx *= -1
+            x[:] += dx
+            dx[:] *= -1
             step = _get_stepsize(F=F, x=x, dx=dx, start_step=min(2 * step, 1))
-            x += step * dx
-            f = F(x)
+            x[:] += step * dx
+            f[:] = F(x)
             updated_total_square_error = f.dot(f)
         else:
             step = 1
@@ -113,9 +118,9 @@ def root_gauss_newton(
 
 
 def _get_stepsize(
-    F: Callable[[DenseArrayType], DenseArrayType],
-    x: DenseArrayType,
-    dx: DenseArrayType,
+    F: Callable[[NDArray], NDArray],
+    x: NDArray,
+    dx: NDArray,
     start_step: float = 1.0,
     min_step: float = 2**-30,
 ) -> float:

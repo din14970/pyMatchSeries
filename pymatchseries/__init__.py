@@ -1,3 +1,3 @@
-from pymatchseries.matchseries import MatchSeries
+#from pymatchseries.matchseries import MatchSeries
 
-__all__ = ["MatchSeries"]
+#__all__ = ["MatchSeries"]
