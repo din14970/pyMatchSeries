@@ -1,3 +1,5 @@
+> ⚠️ This project was migrated to [Codeberg](https://codeberg.org/din14970/pyMatchSeries) and this repo was archived.
+
 <p align="left">
 <a href="https://github.com/din14970/pyMatchSeries/actions"><img alt="Actions Status" src="https://github.com/din14970/pyMatchSeries/workflows/build/badge.svg"></a>
 <a href="https://pypi.org/project/pyMatchSeries/"><img alt="PyPI" src="https://img.shields.io/pypi/v/pyMatchSeries.svg?style=flat"></a>
