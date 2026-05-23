@@ -1,7 +1,6 @@
-import re
 import os
+import re
 import sys
-
 
 folder, _ = os.path.split(os.path.abspath(__file__))
 DEFAULT_CONFIG_PATH = os.path.join(folder, "default_parameters.param")
@@ -14,7 +13,7 @@ INTEGERLISTITEMS = re.compile(r"([0-9]+)")
 
 
 class config_dict(dict):
-    def __init__(self, data):
+    def __init__(self, data) -> None:
         super().__init__(data)
 
     def __getattr__(self, attr):

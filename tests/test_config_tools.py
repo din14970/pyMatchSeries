@@ -1,6 +1,8 @@
-from pymatchseries import config_tools as ctools
 import os
+
 import pytest
+
+from pymatchseries import config_tools as ctools
 
 
 def test_load_config():

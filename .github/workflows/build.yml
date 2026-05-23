@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: [3.7, 3.8]
+        python-version: ["3.9", "3.10"]
     steps:
       - uses: actions/checkout@v2
       - name: Set up Python ${{ matrix.python-version }}
@@ -37,9 +37,9 @@ jobs:
         run: conda --version
       - name: Install depedencies and package
         shell: bash
-        run: pip install -U -e .'[tests]'; conda install match-series
+        run: pip install -U -e .'[dev]'; conda install match-series
       - name: Run tests
-        run: pytest --cov=pymatchseries --pyargs pymatchseries
+        run: pytest --cov=pymatchseries -vv
       - name: Generate line coverage
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: coverage report --show-missing

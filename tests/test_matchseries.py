@@ -1,12 +1,13 @@
-from pymatchseries import matchseries as ms
-import os
 import gc
+import os
 import shutil
-import pytest
-from hyperspy.signals import Signal2D, EDSTEMSpectrum
+
 import dask.array as da
 import numpy as np
+import pytest
+from hyperspy.signals import EDSTEMSpectrum, Signal2D
 
+from pymatchseries import matchseries as ms
 
 # numpy dataset
 np.random.seed(1001)
